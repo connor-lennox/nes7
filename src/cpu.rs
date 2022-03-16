@@ -221,10 +221,10 @@ impl CPU {
             Op::BRK => (), //TODO: push PC+2, set I flag, push SR
             Op::BVC => self.branch(!self.status.contains(CpuFlags::OVERFLOW)),
             Op::BVS => self.branch(self.status.contains(CpuFlags::OVERFLOW)),
-            Op::CLC => todo!(),
-            Op::CLD => todo!(),
-            Op::CLI => todo!(),
-            Op::CLV => todo!(),
+            Op::CLC => self.status.remove(CpuFlags::CARRY),
+            Op::CLD => self.status.remove(CpuFlags::DECIMAL),
+            Op::CLI => self.status.remove(CpuFlags::INTERRUPT),
+            Op::CLV => self.status.remove(CpuFlags::OVERFLOW),
             Op::DEX => self.dex(),
             Op::DEY => self.dey(),
             Op::INX => self.inx(),
@@ -547,5 +547,41 @@ mod test {
         cpu.run(vec![0x70, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
         assert_eq!(cpu.register_a, 0x01);
+     }
+
+     #[test]
+     fn test_0x18_clc() {
+         let mut cpu = CPU::new();
+         cpu.status.insert(CpuFlags::CARRY);
+         cpu.run(vec![0x18, 0x00]);
+
+         assert!(!cpu.status.contains(CpuFlags::CARRY));
+     }
+
+     #[test]
+     fn test_0xd8_cld() {
+         let mut cpu = CPU::new();
+         cpu.status.insert(CpuFlags::DECIMAL);
+         cpu.run(vec![0xd8, 0x00]);
+
+         assert!(!cpu.status.contains(CpuFlags::DECIMAL));
+     }
+
+     #[test]
+     fn test_0x58_cli() {
+         let mut cpu = CPU::new();
+         cpu.status.insert(CpuFlags::INTERRUPT);
+         cpu.run(vec![0x58, 0x00]);
+
+         assert!(!cpu.status.contains(CpuFlags::INTERRUPT));
+     }
+
+     #[test]
+     fn test_0xb8_clv() {
+         let mut cpu = CPU::new();
+         cpu.status.insert(CpuFlags::OVERFLOW);
+         cpu.run(vec![0xb8, 0x00]);
+
+         assert!(!cpu.status.contains(CpuFlags::OVERFLOW));
      }
 }
