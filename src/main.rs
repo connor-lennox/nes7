@@ -1,4 +1,5 @@
 mod cpu;
+mod bus;
 mod opcodes;
 
 fn main() {
