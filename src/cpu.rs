@@ -150,8 +150,8 @@ impl CPU {
 
     fn branch(&mut self, condition: bool) {
         let jump_amt: i8 = self.mem_read(self.program_counter) as i8;
-        self.program_counter += 1;
         let jump_addr = self.program_counter.wrapping_add(jump_amt as u16);
+        self.program_counter += 1;
         if condition {
             self.program_counter = jump_addr;
         }
@@ -212,15 +212,15 @@ impl CPU {
 
     pub fn interpret_op(&mut self, opcode: &Op) {
         match opcode {
-            Op::BCC => self.branch(self.status.contains(CpuFlags::CARRY)),
-            Op::BCS => todo!(),
-            Op::BEQ => todo!(),
-            Op::BMI => todo!(),
-            Op::BNE => todo!(),
-            Op::BPL => todo!(),
+            Op::BCC => self.branch(!self.status.contains(CpuFlags::CARRY)),
+            Op::BCS => self.branch(self.status.contains(CpuFlags::CARRY)),
+            Op::BEQ => self.branch(self.status.contains(CpuFlags::ZERO)),
+            Op::BMI => self.branch(self.status.contains(CpuFlags::NEGATIVE)),
+            Op::BNE => self.branch(!self.status.contains(CpuFlags::ZERO)),
+            Op::BPL => self.branch(!self.status.contains(CpuFlags::NEGATIVE)),
             Op::BRK => (), //TODO: push PC+2, set I flag, push SR
-            Op::BVC => todo!(),
-            Op::BVS => todo!(),
+            Op::BVC => self.branch(!self.status.contains(CpuFlags::OVERFLOW)),
+            Op::BVS => self.branch(self.status.contains(CpuFlags::OVERFLOW)),
             Op::CLC => todo!(),
             Op::CLD => todo!(),
             Op::CLI => todo!(),
@@ -473,5 +473,79 @@ mod test {
          cpu.run(vec![0x78, 0x00]);
 
          assert!(cpu.status.contains(CpuFlags::INTERRUPT));
+     }
+
+     #[test]
+     fn test_0x90_bcc() {
+         let mut cpu = CPU::new();
+         cpu.status.remove(CpuFlags::CARRY);
+         // Branch reads the relative address from 0x03 of 4, causing execution
+         // to jump past the BRK and execute the LDA.
+         cpu.run(vec![0x90, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+
+         assert_eq!(cpu.register_a, 0x01);
+     }
+
+     #[test]
+     fn test_0xb0_bcs() {
+         let mut cpu = CPU::new();
+         cpu.status.insert(CpuFlags::CARRY);
+         cpu.run(vec![0xb0, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+
+         assert_eq!(cpu.register_a, 0x01);
+     }
+
+     #[test]
+     fn test_0xf0_beq() {
+        let mut cpu = CPU::new();
+        cpu.status.insert(CpuFlags::ZERO);
+        cpu.run(vec![0xf0, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+
+        assert_eq!(cpu.register_a, 0x01);
+     }
+
+     #[test]
+     fn test_0x30_bmi() {
+        let mut cpu = CPU::new();
+        cpu.status.insert(CpuFlags::NEGATIVE);
+        cpu.run(vec![0x30, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+
+        assert_eq!(cpu.register_a, 0x01);
+     }
+
+     #[test]
+     fn test_0xd0_bne() {
+        let mut cpu = CPU::new();
+        cpu.status.remove(CpuFlags::ZERO);
+        cpu.run(vec![0xd0, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+
+        assert_eq!(cpu.register_a, 0x01);
+     }
+
+     #[test]
+     fn test_0x10_bpl() {
+        let mut cpu = CPU::new();
+        cpu.status.remove(CpuFlags::NEGATIVE);
+        cpu.run(vec![0x10, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+
+        assert_eq!(cpu.register_a, 0x01);
+     }
+
+     #[test]
+     fn test_0x50_bvc() {
+        let mut cpu = CPU::new();
+        cpu.status.remove(CpuFlags::OVERFLOW);
+        cpu.run(vec![0x50, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+
+        assert_eq!(cpu.register_a, 0x01);
+     }
+
+     #[test]
+     fn test_0x70_bvs() {
+        let mut cpu = CPU::new();
+        cpu.status.insert(CpuFlags::OVERFLOW);
+        cpu.run(vec![0x70, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+
+        assert_eq!(cpu.register_a, 0x01);
      }
 }
