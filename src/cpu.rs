@@ -213,6 +213,11 @@ impl CPU {
         self.update_zero_negative_flags(self.register_y);
     }
 
+    fn dec(&mut self, addr: u16) {
+        let res = self.mem_read(addr).wrapping_sub(1);
+        self.mem_write(addr, res);
+    }
+
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
         self.update_zero_negative_flags(self.register_x);
@@ -221,6 +226,11 @@ impl CPU {
     fn iny(&mut self) {
         self.register_y = self.register_y.wrapping_add(1);
         self.update_zero_negative_flags(self.register_y);
+    }
+
+    fn inc(&mut self, addr: u16) {
+        let res = self.mem_read(addr).wrapping_add(1);
+        self.mem_write(addr, res);
     }
 
     fn update_zero_negative_flags(&mut self, result: u8) {
@@ -287,9 +297,15 @@ impl CPU {
             OpWithMode::CMP => todo!(),
             OpWithMode::CPX => todo!(),
             OpWithMode::CPY => todo!(),
-            OpWithMode::DEC => todo!(),
+            OpWithMode::DEC => {
+                let addr = self.get_operand_addr(mode);
+                self.dec(addr);
+            },
             OpWithMode::EOR => todo!(),
-            OpWithMode::INC => todo!(),
+            OpWithMode::INC => {
+                let addr = self.get_operand_addr(mode);
+                self.inc(addr);
+            },
             OpWithMode::JMP => todo!(),
             OpWithMode::LDA => {
                 let addr = self.get_operand_addr(mode);
@@ -632,5 +648,23 @@ mod test {
          cpu.run(vec![0x25, 0x03, 0x00, 0xaa]);
 
          assert_eq!(cpu.register_a, 0b1010_0000);
+     }
+
+     #[test]
+     fn test_0xc6_dec_zeropage() {
+         let mut cpu = CPU::new();
+         // Decrement the 0x01 at address 0x03 to 0x00
+         cpu.run(vec![0xc6, 0x03, 0x00, 0x01]);
+
+         assert_eq!(cpu.mem_read(0x03), 0x00);
+     }
+
+     #[test]
+     fn test_0xe6_inc_zeropage() {
+         let mut cpu = CPU::new();
+         // Increment the 0x00 at address 0x03 to 0x01
+         cpu.run(vec![0xe6, 0x03, 0x00, 0x00]);
+
+         assert_eq!(cpu.mem_read(0x03), 0x01);
      }
 }
