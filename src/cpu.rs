@@ -312,8 +312,16 @@ impl CPU {
                 let value = self.mem_read(addr);
                 self.lda(value);
             },
-            OpWithMode::LDX => todo!(),
-            OpWithMode::LDY => todo!(),
+            OpWithMode::LDX => {
+                let addr = self.get_operand_addr(mode);
+                self.register_x = self.mem_read(addr);
+                self.update_zero_negative_flags(self.register_x);
+            },
+            OpWithMode::LDY => {
+                let addr = self.get_operand_addr(mode);
+                self.register_y = self.mem_read(addr);
+                self.update_zero_negative_flags(self.register_y);
+            },
             OpWithMode::LSR => todo!(),
             OpWithMode::ORA => todo!(),
             OpWithMode::ROL => todo!(),
@@ -666,5 +674,32 @@ mod test {
          cpu.run(vec![0xe6, 0x03, 0x00, 0x00]);
 
          assert_eq!(cpu.mem_read(0x03), 0x01);
+     }
+
+     #[test]
+     fn test_0xa2_ldx_immediate() {
+         let mut cpu = CPU::new();
+         cpu.register_x = 0;
+         cpu.run(vec![0xa2, 0x01, 0x00]);
+
+         assert_eq!(cpu.register_x, 0x01);
+     }
+
+     #[test]
+     fn test_0xa6_ldx_zeropage() {
+         let mut cpu = CPU::new();
+         cpu.register_x = 0;
+         cpu.run(vec![0xa6, 0x03, 0x00, 0x01]);
+
+         assert_eq!(cpu.register_x, 0x01);
+     }
+
+     #[test]
+     fn test_0xa0_ldy_immediate() {
+         let mut cpu = CPU::new();
+         cpu.register_y = 0;
+         cpu.run(vec![0xa0, 0x01, 0x00]);
+
+         assert_eq!(cpu.register_y, 0x01);
      }
 }
