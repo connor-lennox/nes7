@@ -157,6 +157,27 @@ impl CPU {
         }
     }
 
+    fn adc(&mut self, value: u8) {
+        // Sum together the current register_a contents, the input value, and the carry out flag:
+        let sum = self.register_a as u16 + value as u16 + (if self.status.contains(CpuFlags::CARRY) {1} else {0});
+        // Set carry-out flag if the total sum is greater than 0xff (bit carried out from u8)
+        self.status.set(CpuFlags::CARRY, sum > 0xff);
+        // Truncate the result to a u8:
+        let res = sum as u8;
+        // Weird logic for the overflow flag...
+        // If bit 7 is different between the (input value, result) AND (result, register_a), overflow occurred
+        self.status.set(CpuFlags::OVERFLOW, (value ^ res) & (res ^ self.register_a) & 0x80 != 0);
+
+        // Actually set the register
+        self.register_a = res;
+        self.update_zero_negative_flags(self.register_a)
+    }
+
+    fn and(&mut self, value: u8) {
+        self.register_a &= value;
+        self.update_zero_negative_flags(self.register_a);
+    }
+
     fn lda(&mut self, value: u8) {
         self.register_a = value;
         self.update_zero_negative_flags(value)
@@ -230,7 +251,7 @@ impl CPU {
             Op::INX => self.inx(),
             Op::INY => self.iny(),
             Op::JSR => todo!(),
-            Op::NOP => todo!(),
+            Op::NOP => (),
             Op::PHA => todo!(),
             Op::PHP => todo!(),
             Op::PLA => todo!(),
@@ -251,8 +272,16 @@ impl CPU {
 
     pub fn interpret_op_with_mode(&mut self, opcode: &OpWithMode, mode: &AddressingMode) {
         match opcode {
-            OpWithMode::ADC => todo!(),
-            OpWithMode::AND => todo!(),
+            OpWithMode::ADC => {
+                let addr = self.get_operand_addr(mode);
+                let value = self.mem_read(addr);
+                self.adc(value);
+            },
+            OpWithMode::AND => {
+                let addr = self.get_operand_addr(mode);
+                let value = self.mem_read(addr);
+                self.and(value);
+            },
             OpWithMode::ASL => todo!(),
             OpWithMode::BIT => todo!(),
             OpWithMode::CMP => todo!(),
@@ -583,5 +612,25 @@ mod test {
          cpu.run(vec![0xb8, 0x00]);
 
          assert!(!cpu.status.contains(CpuFlags::OVERFLOW));
+     }
+
+     #[test]
+     fn test_0x29_and_zeropage() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0b1111_0000;
+        // Do AND operation with 0xAA (0b1010_1010)
+        cpu.run(vec![0x29, 0xaa, 0x00]);
+
+        assert_eq!(cpu.register_a, 0b1010_0000);
+    }
+
+     #[test]
+     fn test_0x25_and_zeropage() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0b1111_0000;
+         // Do AND operation with 0xAA (0b1010_1010)
+         cpu.run(vec![0x25, 0x03, 0x00, 0xaa]);
+
+         assert_eq!(cpu.register_a, 0b1010_0000);
      }
 }
