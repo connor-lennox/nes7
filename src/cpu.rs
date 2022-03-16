@@ -1,5 +1,6 @@
 use crate::opcodes::{self, Op, OpWithMode, Opcode, OPCODE_MAP};
 use crate::bus::{self, Bus};
+use bitflags::bitflags;
 
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
@@ -36,13 +37,33 @@ pub trait Mem {
     }
 }
 
+bitflags! {
+    // Status register is a series of flags:
+    // N V - B D I Z C
+    // ^ ^   ^ ^ ^ ^ ^- Carry
+    // | |   | | | +--- Zero
+    // | |   | | +----- Interrupt (IRQ disable)
+    // | |   | +------- Decimal (swaps to BCD mode)
+    // | |   +--------- Break
+    // | +------------- Overflow
+    // +--------------- Negative
+    pub struct CpuFlags: u8 {
+        const NEGATIVE  = 0b1000_0000;
+        const OVERFLOW  = 0b0100_0000;
+        const BREAK     = 0b0001_0000;
+        const DECIMAL   = 0b0000_1000;
+        const INTERRUPT = 0b0000_0100;
+        const ZERO      = 0b0000_0010;
+        const CARRY     = 0b0000_0001;
+    }
+}
 
 pub struct CPU {
     pub register_a: u8,
     pub register_x: u8,
     pub register_y: u8,
 
-    pub status: u8,
+    pub status: CpuFlags,
     pub program_counter: u16,
 
     pub bus: Bus,
@@ -64,7 +85,7 @@ impl CPU {
             register_a: 0,
             register_x: 0,
             register_y: 0,
-            status: 0,
+            status: CpuFlags::empty(),
             program_counter: 0,
             bus: Bus::new(),
         }
@@ -127,6 +148,15 @@ impl CPU {
         }
     }
 
+    fn branch(&mut self, condition: bool) {
+        let jump_amt: i8 = self.mem_read(self.program_counter) as i8;
+        self.program_counter += 1;
+        let jump_addr = self.program_counter.wrapping_add(jump_amt as u16);
+        if condition {
+            self.program_counter = jump_addr;
+        }
+    }
+
     fn lda(&mut self, value: u8) {
         self.register_a = value;
         self.update_zero_negative_flags(value)
@@ -135,6 +165,21 @@ impl CPU {
     fn tax(&mut self) {
         self.register_x = self.register_a;
         self.update_zero_negative_flags(self.register_x);
+    }
+
+    fn tay(&mut self) {
+        self.register_y = self.register_a;
+        self.update_zero_negative_flags(self.register_y);
+    }
+
+    fn txa(&mut self) {
+        self.register_a = self.register_x;
+        self.update_zero_negative_flags(self.register_a);
+    }
+
+    fn tya(&mut self) {
+        self.register_a = self.register_y;
+        self.update_zero_negative_flags(self.register_a);
     }
 
     fn dex(&mut self) {
@@ -159,23 +204,15 @@ impl CPU {
 
     fn update_zero_negative_flags(&mut self, result: u8) {
         // Update zero flag
-        if result == 0 {
-            self.status = self.status | 0b0000_0010;
-        } else {
-            self.status = self.status & 0b1111_1101;
-        }
+        self.status.set(CpuFlags::ZERO, result == 0);
 
         // Update negative flag
-        if result & 0b1000_0000 != 0 {
-            self.status = self.status | 0b1000_0000;
-        } else {
-            self.status = self.status & 0b0111_1111;
-        }
+        self.status.set(CpuFlags::NEGATIVE, result & 0b1000_0000 != 0);
     }
 
     pub fn interpret_op(&mut self, opcode: &Op) {
         match opcode {
-            Op::BCC => todo!(),
+            Op::BCC => self.branch(self.status.contains(CpuFlags::CARRY)),
             Op::BCS => todo!(),
             Op::BEQ => todo!(),
             Op::BMI => todo!(),
@@ -200,15 +237,15 @@ impl CPU {
             Op::PLP => todo!(),
             Op::RTI => todo!(),
             Op::RTS => todo!(),
-            Op::SEC => todo!(),
-            Op::SED => todo!(),
-            Op::SEI => todo!(),
+            Op::SEC => self.status.insert(CpuFlags::CARRY),
+            Op::SED => self.status.insert(CpuFlags::DECIMAL),
+            Op::SEI => self.status.insert(CpuFlags::INTERRUPT),
             Op::TAX => self.tax(),
-            Op::TAY => todo!(),
+            Op::TAY => self.tay(),
             Op::TSX => todo!(),
-            Op::TXA => todo!(),
+            Op::TXA => self.txa(),
             Op::TXS => todo!(),
-            Op::TYA => todo!(),
+            Op::TYA => self.tya(),
         }
     }
 
@@ -290,15 +327,15 @@ mod test {
         let mut cpu = CPU::new();
         cpu.run(vec![0xa9, 0x05, 0x00]);
         assert_eq!(cpu.register_a, 0x05);
-        assert!(cpu.status & 0b0000_0010 == 0b00);
-        assert!(cpu.status & 0b1000_0000 == 0)
+        assert!(!cpu.status.contains(CpuFlags::ZERO));
+        assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
     }
 
     #[test]
     fn test_0xa9_lda_zero_flag() {
         let mut cpu = CPU::new();
         cpu.run(vec![0xa9, 0x00, 0x00]);
-        assert!(cpu.status & 0b0000_0010 == 0b10);
+        assert!(cpu.status.contains(CpuFlags::ZERO));
     }
 
     #[test]
@@ -336,6 +373,15 @@ mod test {
     }
 
     #[test]
+    fn test_0xa8_tay_move_a_to_y() {
+       let mut cpu = CPU::new();
+       cpu.register_a = 10;
+       cpu.run(vec![0xa8, 0x00]);
+       
+       assert_eq!(cpu.register_y, 10);
+    }
+
+    #[test]
     fn test_5_ops_working_together() {
         let mut cpu = CPU::new();
         cpu.run(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]);
@@ -344,7 +390,7 @@ mod test {
     }
  
      #[test]
-     fn test_inx_overflow() {
+     fn test_0xe8_inx_overflow() {
          let mut cpu = CPU::new();
          cpu.register_x = 0xff;
          cpu.run(vec![0xe8, 0xe8, 0x00]);
@@ -353,7 +399,7 @@ mod test {
      }
 
     #[test]
-     fn test_iny_overflow() {
+     fn test_0xc8_iny_overflow() {
          let mut cpu = CPU::new();
          cpu.register_y = 0xff;
          cpu.run(vec![0xc8, 0xc8, 0x00]);
@@ -362,7 +408,7 @@ mod test {
      }
 
      #[test]
-     fn test_dex_underflow() {
+     fn test_0xca_dex_underflow() {
          let mut cpu = CPU::new();
          cpu.register_x = 0;
          cpu.run(vec![0xca, 0xca, 0x00]);
@@ -371,11 +417,61 @@ mod test {
      }
 
      #[test]
-     fn test_dey_underflow() {
+     fn test_0x88_dey_underflow() {
          let mut cpu = CPU::new();
          cpu.register_y = 0;
          cpu.run(vec![0x88, 0x88, 0x00]);
 
          assert_eq!(cpu.register_y, 0xfe);
+     }
+
+    #[test]
+     fn test_0x8a_txa() {
+         let mut cpu = CPU::new();
+         cpu.register_x = 10;
+         cpu.run(vec![0x8a, 0x00]);
+         
+         assert_eq!(cpu.register_a, 10);
+     }
+
+     #[test]
+     fn test_0x98_tya() {
+         let mut cpu = CPU::new();
+         cpu.register_y = 10;
+         cpu.run(vec![0x98, 0x00]);
+
+         assert_eq!(cpu.register_a, 10);
+
+         // Extra test for status flags
+         let mut cpu2 = CPU::new();
+         cpu2.register_y = 0;
+         cpu2.run(vec![0x98, 0x00]);
+
+         assert!(cpu2.status.contains(CpuFlags::ZERO));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+     }
+
+     #[test]
+     fn test_0x38_sec() {
+         let mut cpu = CPU::new();
+         cpu.run(vec![0x38, 0x00]);
+
+         assert!(cpu.status.contains(CpuFlags::CARRY));
+     }
+
+     #[test]
+     fn test_0xf8_sed() {
+         let mut cpu = CPU::new();
+         cpu.run(vec![0xf8, 0x00]);
+
+         assert!(cpu.status.contains(CpuFlags::DECIMAL));
+     }
+
+     #[test]
+     fn test_0x78_sei() {
+         let mut cpu = CPU::new();
+         cpu.run(vec![0x78, 0x00]);
+
+         assert!(cpu.status.contains(CpuFlags::INTERRUPT));
      }
 }
