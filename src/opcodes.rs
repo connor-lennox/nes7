@@ -114,7 +114,7 @@ lazy_static! {
         Opcode::Op { op: Op::INY, code: 0xC8, len: 1, cycles: 2 },
 
         Opcode::OpWithMode { op: OpWithMode::JMP, code: 0x4C, len: 3, cycles: 3, mode: AddressingMode::Absolute },
-        Opcode::OpWithMode { op: OpWithMode::JMP, code: 0x6C, len: 3, cycles: 5, mode: AddressingMode::Indirect_X },
+        Opcode::OpWithMode { op: OpWithMode::JMP, code: 0x6C, len: 3, cycles: 5, mode: AddressingMode::Indirect },
 
         Opcode::Op { op: Op::JSR, code: 0x20, len: 3, cycles: 6 },
 
