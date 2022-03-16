@@ -11,6 +11,7 @@ pub enum AddressingMode {
     Absolute,
     Absolute_X,
     Absolute_Y,
+    Indirect,
     Indirect_X,
     Indirect_Y,
     Accumulator,
@@ -69,6 +70,63 @@ impl CPU {
         }
     }
 
+    fn get_operand_addr(&mut self, mode: &AddressingMode) -> u16 {
+        match mode {
+            AddressingMode::Immediate => {
+                let addr = self.program_counter;
+                self.program_counter += 1;
+                addr
+            },
+            AddressingMode::ZeroPage => {
+                let addr = self.mem_read(self.program_counter) as u16;
+                self.program_counter += 1;
+                addr
+            },
+            AddressingMode::ZeroPage_X => {
+                let addr = self.mem_read(self.program_counter).wrapping_add(self.register_x) as u16;
+                self.program_counter += 1;
+                addr
+            },
+            AddressingMode::ZeroPage_Y => {
+                let addr = self.mem_read(self.program_counter).wrapping_add(self.register_y) as u16;
+                self.program_counter += 1;
+                addr
+            },
+            AddressingMode::Absolute => {
+                let addr = self.mem_read_u16(self.program_counter);
+                self.program_counter += 2;
+                addr
+            },
+            AddressingMode::Absolute_X => {
+                let addr = self.mem_read_u16(self.program_counter).wrapping_add(self.register_x as u16);
+                self.program_counter += 2;
+                addr
+            },
+            AddressingMode::Absolute_Y => {
+                let addr = self.mem_read_u16(self.program_counter).wrapping_add(self.register_y as u16);
+                self.program_counter += 2;
+                addr
+            },
+            AddressingMode::Indirect => panic!("Indirect addressing should only be used for JMP"),
+            AddressingMode::Indirect_X => {
+                let ptr = (self.mem_read(self.program_counter) as u8).wrapping_add(self.register_x);
+                self.program_counter += 1;
+                let lo = self.mem_read(ptr as u16);
+                let hi = self.mem_read(ptr.wrapping_add(1) as u16);
+                (hi as u16) << 8 | (lo as u16)
+            },
+            AddressingMode::Indirect_Y => {
+                let ptr = self.mem_read(self.program_counter);
+                self.program_counter += 1;
+                let lo = self.mem_read(ptr as u16);
+                let hi = self.mem_read(ptr.wrapping_add(1) as u16);
+                let deref_addr = (hi as u16) << 8 | (lo as u16);
+                deref_addr.wrapping_add(self.register_y as u16)
+            },
+            AddressingMode::Accumulator => panic!("Cannot get address of accumulator"),
+        }
+    }
+
     fn lda(&mut self, value: u8) {
         self.register_a = value;
         self.update_zero_negative_flags(value)
@@ -79,13 +137,23 @@ impl CPU {
         self.update_zero_negative_flags(self.register_x);
     }
 
+    fn dex(&mut self) {
+        self.register_x = self.register_x.wrapping_sub(1);
+        self.update_zero_negative_flags(self.register_x);
+    }
+
+    fn dey(&mut self) {
+        self.register_y = self.register_y.wrapping_sub(1);
+        self.update_zero_negative_flags(self.register_y);
+    }
+
     fn inx(&mut self) {
-        self.register_x = self.register_x.overflowing_add(1).0;
+        self.register_x = self.register_x.wrapping_add(1);
         self.update_zero_negative_flags(self.register_x);
     }
 
     fn iny(&mut self) {
-        self.register_y = self.register_y.overflowing_add(1).0;
+        self.register_y = self.register_y.wrapping_add(1);
         self.update_zero_negative_flags(self.register_y);
     }
 
@@ -120,8 +188,8 @@ impl CPU {
             Op::CLD => todo!(),
             Op::CLI => todo!(),
             Op::CLV => todo!(),
-            Op::DEX => todo!(),
-            Op::DEY => todo!(),
+            Op::DEX => self.dex(),
+            Op::DEY => self.dey(),
             Op::INX => self.inx(),
             Op::INY => self.iny(),
             Op::JSR => todo!(),
@@ -158,9 +226,8 @@ impl CPU {
             OpWithMode::INC => todo!(),
             OpWithMode::JMP => todo!(),
             OpWithMode::LDA => {
-                let value = self.mem_read(self.program_counter);
-                // TODO: other addressing modes
-                self.program_counter += 1;
+                let addr = self.get_operand_addr(mode);
+                let value = self.mem_read(addr);
                 self.lda(value);
             },
             OpWithMode::LDX => todo!(),
@@ -235,12 +302,37 @@ mod test {
     }
 
     #[test]
+    fn test_0xa5_lda_zeropage_load() {
+        let mut cpu = CPU::new();
+        // Do a read at address 0x00, which is 0xa5 (the LDA instruction itself)
+        cpu.run(vec![0xa5, 0x00, 0x00]);
+        assert_eq!(cpu.register_a, 0xa5);
+    }
+
+    #[test]
+    fn test_0xb5_lda_zeropagex_load() {
+        let mut cpu = CPU::new();
+        // Set register_x to 3, then do a zeropage_x read at addr 0x00 (+3), grabbing the 0xfc
+        cpu.register_x = 3;
+        cpu.run(vec![0xb5, 0x00, 0x00, 0xfc]);
+        assert_eq!(cpu.register_a, 0xfc);
+    }
+
+    #[test]
+    fn test_0xad_lda_absolute_load() {
+        let mut cpu = CPU::new();
+        // The absolute address is 0x0004 (little endian), grabbing the 0xfc
+        cpu.run(vec![0xad, 0x04, 0x00, 0x00, 0xfc]);
+        assert_eq!(cpu.register_a, 0xfc);
+    }
+
+    #[test]
     fn test_0xaa_tax_move_a_to_x() {
         let mut cpu = CPU::new();
         cpu.register_a = 10;
         cpu.run(vec![0xaa, 0x00]);
   
-        assert_eq!(cpu.register_x, 10)
+        assert_eq!(cpu.register_x, 10);
     }
 
     #[test]
@@ -248,7 +340,7 @@ mod test {
         let mut cpu = CPU::new();
         cpu.run(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]);
   
-        assert_eq!(cpu.register_x, 0xc1)
+        assert_eq!(cpu.register_x, 0xc1);
     }
  
      #[test]
@@ -257,6 +349,33 @@ mod test {
          cpu.register_x = 0xff;
          cpu.run(vec![0xe8, 0xe8, 0x00]);
  
-         assert_eq!(cpu.register_x, 1)
+         assert_eq!(cpu.register_x, 1);
+     }
+
+    #[test]
+     fn test_iny_overflow() {
+         let mut cpu = CPU::new();
+         cpu.register_y = 0xff;
+         cpu.run(vec![0xc8, 0xc8, 0x00]);
+
+         assert_eq!(cpu.register_y, 1);
+     }
+
+     #[test]
+     fn test_dex_underflow() {
+         let mut cpu = CPU::new();
+         cpu.register_x = 0;
+         cpu.run(vec![0xca, 0xca, 0x00]);
+
+         assert_eq!(cpu.register_x, 0xfe);
+     }
+
+     #[test]
+     fn test_dey_underflow() {
+         let mut cpu = CPU::new();
+         cpu.register_y = 0;
+         cpu.run(vec![0x88, 0x88, 0x00]);
+
+         assert_eq!(cpu.register_y, 0xfe);
      }
 }
