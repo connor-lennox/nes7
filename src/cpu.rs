@@ -346,6 +346,7 @@ impl CPU {
                 let res = (v << 1) | (if self.status.contains(CpuFlags::CARRY) {1} else {0});
                 self.status.set(CpuFlags::CARRY, v & 0b1000_0000 != 0);
                 self.mem_write(addr, res);
+                self.update_zero_negative_flags(res);
             }
         }
     }
@@ -368,6 +369,7 @@ impl CPU {
                 let res = (v >> 1) | (if self.status.contains(CpuFlags::CARRY) {0b1000_0000} else {0});
                 self.status.set(CpuFlags::CARRY, v & 0b0000_0001 != 0);
                 self.mem_write(addr, res);
+                self.update_zero_negative_flags(res);
             }
         }
     }
@@ -509,9 +511,18 @@ impl CPU {
             OpWithMode::ROL => self.rol(mode),
             OpWithMode::ROR => self.ror(mode),
             OpWithMode::SBC => todo!(),
-            OpWithMode::STA => todo!(),
-            OpWithMode::STX => todo!(),
-            OpWithMode::STY => todo!(),
+            OpWithMode::STA => {
+                let addr = self.get_operand_addr(mode);
+                self.mem_write(addr, self.register_a);
+            },
+            OpWithMode::STX => {
+                let addr = self.get_operand_addr(mode);
+                self.mem_write(addr, self.register_x);
+            },
+            OpWithMode::STY => {
+                let addr = self.get_operand_addr(mode);
+                self.mem_write(addr, self.register_y);
+            },
         }
     }
 
@@ -1086,15 +1097,55 @@ mod test {
          assert!(!cpu.status.contains(CpuFlags::ZERO));
          assert!(cpu.status.contains(CpuFlags::NEGATIVE));
      }
+     
+     #[test]
+     fn test_0x6a_ror_acc_zero() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0b0000_0001;
+         cpu.run(vec![0x6a, 0x00]);
 
+         assert_eq!(cpu.register_a, 0);
+         assert!(cpu.status.contains(CpuFlags::ZERO));
+         assert!(cpu.status.contains(CpuFlags::CARRY));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+     }
+
+     #[test]
      fn test_0x66_ror_zeropage() {
         let mut cpu = CPU::new();
         cpu.status.insert(CpuFlags::CARRY);
-        cpu.run(vec![0x26, 0x03, 0x00, 0b0011_1001]);
+        cpu.run(vec![0x66, 0x03, 0x00, 0b0011_1001]);
 
         assert_eq!(cpu.mem_read(0x03), 0b1001_1100);
         assert!(cpu.status.contains(CpuFlags::CARRY));
         assert!(!cpu.status.contains(CpuFlags::ZERO));
         assert!(cpu.status.contains(CpuFlags::NEGATIVE));
+     }
+
+     #[test]
+     fn test_0x85_sta_zeropage() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0x77;
+         cpu.run(vec![0x85, 0x03, 0x00, 0x00]);
+
+         assert_eq!(cpu.mem_read(0x03), 0x77);
+     }
+
+     #[test]
+     fn test_0x86_stx_zeropage() {
+         let mut cpu = CPU::new();
+         cpu.register_x = 0x77;
+         cpu.run(vec![0x86, 0x03, 0x00, 0x00]);
+
+         assert_eq!(cpu.mem_read(0x03), 0x77);
+     }
+
+     #[test]
+     fn test_0x84_sty_zeropage() {
+         let mut cpu = CPU::new();
+         cpu.register_y = 0x77;
+         cpu.run(vec![0x84, 0x03, 0x00, 0x00]);
+
+         assert_eq!(cpu.mem_read(0x03), 0x77);
      }
 }
