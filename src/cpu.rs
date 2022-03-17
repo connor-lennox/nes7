@@ -132,7 +132,12 @@ impl CPU {
                 self.program_counter += 2;
                 addr
             },
-            AddressingMode::Indirect => panic!("Indirect addressing should only be used for JMP"),
+            AddressingMode::Indirect => {
+                // Get the bytes at the PC, this is the address of the address we want (two levels of deref).
+                let ptr = self.mem_read_u16(self.program_counter);
+                self.program_counter += 2;
+                self.mem_read_u16(ptr)
+            },
             AddressingMode::Indirect_X => {
                 let ptr = (self.mem_read(self.program_counter) as u8).wrapping_add(self.register_x);
                 self.program_counter += 1;
@@ -304,6 +309,25 @@ impl CPU {
         }
     }
 
+    fn lsr_acc(&mut self) {
+        self.status.set(CpuFlags::CARRY, self.register_a & 0b0000_0001 != 0);
+        self.register_a = self.register_a >> 1;
+        self.update_zero_negative_flags(self.register_a);
+    }
+
+    fn lsr(&mut self, mode: &AddressingMode) {
+        match mode {
+            AddressingMode::Accumulator => self.lsr_acc(),
+            _ => {
+                let addr = self.get_operand_addr(mode);
+                let v = self.mem_read(addr);
+                self.status.set(CpuFlags::CARRY, v & 0b0000_0001 != 0);
+                self.mem_write(addr, v >> 1);
+                self.update_zero_negative_flags(v >> 1);
+            }
+        }
+    }
+
     fn cmp(&mut self, lhs: u8, addr: u16) {
         // LHS is one of register_a, register_x, or register_y.
         // RHS comes from Memory
@@ -311,6 +335,14 @@ impl CPU {
         let res = lhs.wrapping_sub(rhs);
         self.update_zero_negative_flags(res);
         self.status.set(CpuFlags::CARRY, lhs >= rhs);
+    }
+
+    fn bit(&mut self, value: u8) {
+        // Bit 7 and 6 of value are put into N and V flags.
+        // Z flag is set to (register_a AND value)
+        self.status.set(CpuFlags::NEGATIVE, value & 0b1000_0000 == 0b1000_0000);
+        self.status.set(CpuFlags::OVERFLOW, value & 0b0100_0000 == 0b0100_0000);
+        self.status.set(CpuFlags::ZERO, self.register_a & value != 0);
     }
 
     fn update_zero_negative_flags(&mut self, result: u8) {
@@ -373,7 +405,11 @@ impl CPU {
                 self.and(value);
             },
             OpWithMode::ASL => self.asl(mode),
-            OpWithMode::BIT => todo!(),
+            OpWithMode::BIT => {
+                let addr = self.get_operand_addr(mode);
+                let value = self.mem_read(addr);
+                self.bit(value);
+            },
             OpWithMode::CMP => {
                 let addr = self.get_operand_addr(mode);
                 self.cmp(self.register_a, addr);
@@ -390,12 +426,20 @@ impl CPU {
                 let addr = self.get_operand_addr(mode);
                 self.dec(addr);
             },
-            OpWithMode::EOR => todo!(),
+            OpWithMode::EOR => {
+                let addr = self.get_operand_addr(mode);
+                let value = self.mem_read(addr);
+                self.register_a = self.register_a ^ value;
+                self.update_zero_negative_flags(self.register_a);
+            },
             OpWithMode::INC => {
                 let addr = self.get_operand_addr(mode);
                 self.inc(addr);
             },
-            OpWithMode::JMP => todo!(),
+            OpWithMode::JMP => {
+                let addr = self.get_operand_addr(mode);
+                self.program_counter = self.mem_read_u16(addr);
+            },
             OpWithMode::LDA => {
                 let addr = self.get_operand_addr(mode);
                 let value = self.mem_read(addr);
@@ -411,8 +455,13 @@ impl CPU {
                 self.register_y = self.mem_read(addr);
                 self.update_zero_negative_flags(self.register_y);
             },
-            OpWithMode::LSR => todo!(),
-            OpWithMode::ORA => todo!(),
+            OpWithMode::LSR => self.lsr(mode),
+            OpWithMode::ORA => {
+                let addr = self.get_operand_addr(mode);
+                let value = self.mem_read(addr);
+                self.register_a = self.register_a | value;
+                self.update_zero_negative_flags(self.register_a);
+            },
             OpWithMode::ROL => todo!(),
             OpWithMode::ROR => todo!(),
             OpWithMode::SBC => todo!(),
@@ -879,5 +928,80 @@ mod test {
          assert!(!cpu.status.contains(CpuFlags::ZERO));
          assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
          assert!(cpu.status.contains(CpuFlags::CARRY));
+     }
+
+     #[test]
+     fn test_0x24_bit_zeropage() {
+        let mut cpu = CPU::new();
+        cpu.register_a = 0b0000_0001;
+        cpu.run(vec![0x24, 0x03, 0x00, 0b1100_0001]);
+
+        assert!(cpu.status.contains(CpuFlags::ZERO));
+        assert!(cpu.status.contains(CpuFlags::NEGATIVE));
+        assert!(cpu.status.contains(CpuFlags::OVERFLOW));
+     }
+
+     #[test]
+     fn test_0x49_eor_immediate() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0b0011_0011;
+         cpu.run(vec![0x49, 0b0000_1111]);
+
+         assert_eq!(cpu.register_a, 0b0011_1100);
+     }
+
+     #[test]
+     fn test_0x4c_jmp_absolute() {
+         let mut cpu = CPU::new();
+         // Absolute address of 0x0003, grabs value of 0x0006 and jumps there.
+         // Executes a BRK immediately, PC is left at 0x0007.
+         cpu.run(vec![0x4c, 0x03, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00]);
+         
+         assert_eq!(cpu.program_counter, 0x07);
+     }
+
+     #[test]
+     fn test_0x4a_asl_acc() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0b1100_1001;
+         cpu.run(vec![0x4a, 0x00]);
+
+         assert_eq!(cpu.register_a, 0b0110_0100);
+         assert!(!cpu.status.contains(CpuFlags::ZERO));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+         assert!(cpu.status.contains(CpuFlags::CARRY));
+     }
+
+     #[test]
+     fn test_0x46_asl_zeropage() {
+         let mut cpu = CPU::new();
+         cpu.run(vec![0x46, 0x03, 0x00, 0b1100_1001]);
+
+         assert_eq!(cpu.mem_read(0x03), 0b0110_0100);
+         assert!(!cpu.status.contains(CpuFlags::ZERO));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+         assert!(cpu.status.contains(CpuFlags::CARRY));
+     }
+
+     #[test]
+     fn test_0x09_ora_immediate() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0b0011_0011;
+         cpu.run(vec![0x09, 0b0000_1111, 0x00]);
+
+         assert_eq!(cpu.register_a, 0b0011_1111);
+         assert!(!cpu.status.contains(CpuFlags::ZERO));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+     }
+
+     #[test]
+     fn test_0x05_ora_zeropage() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0b0011_0011;
+         cpu.run(vec![0x05, 0x03, 0x00, 0b0000_1111]);
+
+         assert_eq!(cpu.register_a, 0b0011_1111);
+         assert!(!cpu.status.contains(CpuFlags::ZERO));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
      }
 }
