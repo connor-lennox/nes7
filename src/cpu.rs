@@ -233,6 +233,15 @@ impl CPU {
         self.mem_write(addr, res);
     }
 
+    fn cmp(&mut self, lhs: u8, addr: u16) {
+        // LHS is one of register_a, register_x, or register_y.
+        // RHS comes from Memory
+        let rhs = self.mem_read(addr);
+        let res = lhs.wrapping_sub(rhs);
+        self.update_zero_negative_flags(res);
+        self.status.set(CpuFlags::CARRY, lhs >= rhs);
+    }
+
     fn update_zero_negative_flags(&mut self, result: u8) {
         // Update zero flag
         self.status.set(CpuFlags::ZERO, result == 0);
@@ -294,9 +303,18 @@ impl CPU {
             },
             OpWithMode::ASL => todo!(),
             OpWithMode::BIT => todo!(),
-            OpWithMode::CMP => todo!(),
-            OpWithMode::CPX => todo!(),
-            OpWithMode::CPY => todo!(),
+            OpWithMode::CMP => {
+                let addr = self.get_operand_addr(mode);
+                self.cmp(self.register_a, addr);
+            },
+            OpWithMode::CPX => {
+                let addr = self.get_operand_addr(mode);
+                self.cmp(self.register_x, addr);
+            },
+            OpWithMode::CPY => {
+                let addr = self.get_operand_addr(mode);
+                self.cmp(self.register_y, addr);
+            },
             OpWithMode::DEC => {
                 let addr = self.get_operand_addr(mode);
                 self.dec(addr);
@@ -701,5 +719,49 @@ mod test {
          cpu.run(vec![0xa0, 0x01, 0x00]);
 
          assert_eq!(cpu.register_y, 0x01);
+     }
+
+     #[test]
+     fn test_0xc9_cmp_immediate() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0x03;
+         cpu.run(vec![0xc9, 0x03, 0x00]);
+        
+         assert!(cpu.status.contains(CpuFlags::ZERO));
+         assert!(cpu.status.contains(CpuFlags::CARRY));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+     }
+
+     #[test]
+     fn test_0xc9_cmp_immediate_negative() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0x02;
+         cpu.run(vec![0xc9, 0x03, 0x00]);
+
+         assert!(!cpu.status.contains(CpuFlags::ZERO));
+         assert!(!cpu.status.contains(CpuFlags::CARRY));
+         assert!(cpu.status.contains(CpuFlags::NEGATIVE));
+     }
+
+     #[test]
+     fn test_0xe0_cpx_immediate() {
+         let mut cpu = CPU::new();
+         cpu.register_x = 0x04;
+         cpu.run(vec![0xe0, 0x03, 0x00]);
+
+         assert!(!cpu.status.contains(CpuFlags::ZERO));
+         assert!(cpu.status.contains(CpuFlags::CARRY));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+     }
+
+     #[test]
+     fn test_0xc0_cpy_immediate() {
+        let mut cpu = CPU::new();
+        cpu.register_y = 0xe3;
+        cpu.run(vec![0xc0, 0xe3, 0x00]);
+
+        assert!(cpu.status.contains(CpuFlags::ZERO));
+        assert!(cpu.status.contains(CpuFlags::CARRY));
+        assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
      }
 }
