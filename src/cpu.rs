@@ -657,7 +657,7 @@ mod test {
      }
 
      #[test]
-     fn test_0x29_and_zeropage() {
+     fn test_0x29_and_immediate() {
         let mut cpu = CPU::new();
         cpu.register_a = 0b1111_0000;
         // Do AND operation with 0xAA (0b1010_1010)
