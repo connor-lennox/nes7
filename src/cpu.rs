@@ -510,7 +510,12 @@ impl CPU {
             },
             OpWithMode::ROL => self.rol(mode),
             OpWithMode::ROR => self.ror(mode),
-            OpWithMode::SBC => todo!(),
+            OpWithMode::SBC => {
+                let addr = self.get_operand_addr(mode);
+                let value = self.mem_read(addr);
+                // SBC is actually ADC but with 2's complement of the value:
+                self.adc(((value as i8).wrapping_neg().wrapping_sub(1)) as u8);
+            },
             OpWithMode::STA => {
                 let addr = self.get_operand_addr(mode);
                 self.mem_write(addr, self.register_a);
