@@ -283,6 +283,27 @@ impl CPU {
         self.program_counter = self.pop_stack_16();
     }
 
+    fn asl_acc(&mut self) {
+        // Set the carry-out flag to bit 7 of the accumulator:
+        self.status.set(CpuFlags::CARRY, self.register_a & 0b1000_0000 != 0);
+        // Shift the register
+        self.register_a = self.register_a << 1;
+        self.update_zero_negative_flags(self.register_a);
+    }
+
+    fn asl(&mut self, mode: &AddressingMode) {
+        match mode {
+            AddressingMode::Accumulator => self.asl_acc(),
+            _ => {
+                let addr = self.get_operand_addr(mode);
+                let v = self.mem_read(addr);
+                self.status.set(CpuFlags::CARRY, v & 0b1000_0000 != 0);
+                self.mem_write(addr, v << 1);
+                self.update_zero_negative_flags(v << 1);
+            }
+        }
+    }
+
     fn cmp(&mut self, lhs: u8, addr: u16) {
         // LHS is one of register_a, register_x, or register_y.
         // RHS comes from Memory
@@ -351,7 +372,7 @@ impl CPU {
                 let value = self.mem_read(addr);
                 self.and(value);
             },
-            OpWithMode::ASL => todo!(),
+            OpWithMode::ASL => self.asl(mode),
             OpWithMode::BIT => todo!(),
             OpWithMode::CMP => {
                 let addr = self.get_operand_addr(mode);
@@ -835,5 +856,28 @@ mod test {
          assert!(recovered.contains(CpuFlags::BREAK));
          assert!(recovered.contains(CpuFlags::BREAK2));
          assert!(!recovered.contains(CpuFlags::OVERFLOW));
+     }
+
+     #[test]
+     fn test_0x0a_asl_acc() {
+         let mut cpu = CPU::new();
+         cpu.register_a = 0b1001_1100;
+         cpu.run(vec![0x0a, 0x00]);
+
+         assert_eq!(cpu.register_a, 0b0011_1000);
+         assert!(!cpu.status.contains(CpuFlags::ZERO));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+         assert!(cpu.status.contains(CpuFlags::CARRY));
+     }
+
+     #[test]
+     fn test_0x06_asl_zeropage() {
+         let mut cpu = CPU::new();
+         cpu.run(vec![0x06, 0x03, 0x00, 0b1001_1100]);
+
+         assert_eq!(cpu.mem_read(0x03), 0b0011_1000);
+         assert!(!cpu.status.contains(CpuFlags::ZERO));
+         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+         assert!(cpu.status.contains(CpuFlags::CARRY));
      }
 }
