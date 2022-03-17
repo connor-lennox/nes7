@@ -40,16 +40,18 @@ pub trait Mem {
 bitflags! {
     // Status register is a series of flags:
     // N V - B D I Z C
-    // ^ ^   ^ ^ ^ ^ ^- Carry
-    // | |   | | | +--- Zero
-    // | |   | | +----- Interrupt (IRQ disable)
-    // | |   | +------- Decimal (swaps to BCD mode)
-    // | |   +--------- Break
+    // ^ ^ ^ ^ ^ ^ ^ ^- Carry
+    // | | | | | | +--- Zero
+    // | | | | | +----- Interrupt (IRQ disable)
+    // | | | | +------- Decimal (swaps to BCD mode)
+    // | | | +--------- Break
+    // | | +----------- Break2
     // | +------------- Overflow
     // +--------------- Negative
     pub struct CpuFlags: u8 {
         const NEGATIVE  = 0b1000_0000;
         const OVERFLOW  = 0b0100_0000;
+        const BREAK2    = 0b0010_0000;
         const BREAK     = 0b0001_0000;
         const DECIMAL   = 0b0000_1000;
         const INTERRUPT = 0b0000_0100;
@@ -65,6 +67,7 @@ pub struct CPU {
 
     pub status: CpuFlags,
     pub program_counter: u16,
+    pub stack_pointer: u8,
 
     pub bus: Bus,
 }
@@ -87,6 +90,7 @@ impl CPU {
             register_y: 0,
             status: CpuFlags::empty(),
             program_counter: 0,
+            stack_pointer: 0xFF,
             bus: Bus::new(),
         }
     }
@@ -155,6 +159,29 @@ impl CPU {
         if condition {
             self.program_counter = jump_addr;
         }
+    }
+
+    fn push_stack(&mut self, value: u8) {
+        // Write the value to the stack position then DECREMENT the stack pointer.
+        // The stack is bound to page 1 (0x0100 - 0x01FF)
+        self.mem_write(0x0100 | self.stack_pointer as u16, value);
+        self.stack_pointer -= 1;
+    }
+
+    fn pop_stack(&mut self) -> u8 {
+        self.stack_pointer += 1;
+        self.mem_read(0x0100 | self.stack_pointer as u16)
+    }
+
+    fn push_stack_16(&mut self, value: u16) {
+        self.push_stack((value >> 8) as u8);
+        self.push_stack((value & 0xff) as u8);
+    }
+
+    fn pop_stack_16(&mut self) -> u16 {
+        let lo = self.pop_stack() as u16;
+        let hi = self.pop_stack() as u16;
+        (hi << 8) | lo
     }
 
     fn adc(&mut self, value: u8) {
@@ -233,6 +260,29 @@ impl CPU {
         self.mem_write(addr, res);
     }
 
+    fn jsr(&mut self) {
+        // Push the PC + 1, to skip to the first instruction after the jsr
+        self.push_stack_16(self.program_counter + 1);
+        // Then jump to the address specified by the next two bytes:
+        self.program_counter = self.mem_read_u16(self.program_counter);
+    }
+
+    fn php(&mut self) {
+        // Pushing the status register sets both BREAK flags to 1 (but only in the pushed version)
+        let mut new_flags = self.status.clone();
+        new_flags.insert(CpuFlags::BREAK);
+        new_flags.insert(CpuFlags::BREAK2);
+        self.push_stack(new_flags.bits())
+    }
+
+    fn rti(&mut self) {
+        self.status.bits = self.pop_stack();
+        self.status.remove(CpuFlags::BREAK);
+        self.status.insert(CpuFlags::BREAK2);
+
+        self.program_counter = self.pop_stack_16();
+    }
+
     fn cmp(&mut self, lhs: u8, addr: u16) {
         // LHS is one of register_a, register_x, or register_y.
         // RHS comes from Memory
@@ -269,22 +319,22 @@ impl CPU {
             Op::DEY => self.dey(),
             Op::INX => self.inx(),
             Op::INY => self.iny(),
-            Op::JSR => todo!(),
+            Op::JSR => self.jsr(),
             Op::NOP => (),
-            Op::PHA => todo!(),
-            Op::PHP => todo!(),
-            Op::PLA => todo!(),
-            Op::PLP => todo!(),
-            Op::RTI => todo!(),
-            Op::RTS => todo!(),
+            Op::PHA => self.push_stack(self.register_a),
+            Op::PHP => self.php(),
+            Op::PLA => self.register_a = self.pop_stack(),
+            Op::PLP => self.status.bits = self.pop_stack() & 0b1110_1111,
+            Op::RTI => self.rti(),
+            Op::RTS => self.program_counter = self.pop_stack_16() + 1,
             Op::SEC => self.status.insert(CpuFlags::CARRY),
             Op::SED => self.status.insert(CpuFlags::DECIMAL),
             Op::SEI => self.status.insert(CpuFlags::INTERRUPT),
             Op::TAX => self.tax(),
             Op::TAY => self.tay(),
-            Op::TSX => todo!(),
+            Op::TSX => self.register_x = self.stack_pointer,
             Op::TXA => self.txa(),
-            Op::TXS => todo!(),
+            Op::TXS => self.stack_pointer = self.register_x,
             Op::TYA => self.tya(),
         }
     }
@@ -763,5 +813,27 @@ mod test {
         assert!(cpu.status.contains(CpuFlags::ZERO));
         assert!(cpu.status.contains(CpuFlags::CARRY));
         assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
+     }
+
+     #[test]
+     fn test_0x20_jsr() {
+        let mut cpu = CPU::new();
+        cpu.run(vec![0x20, 0x05, 0x00]);
+
+        assert_eq!(cpu.program_counter, 0x06);
+        assert_eq!(cpu.pop_stack(), 0x02);
+     }
+
+     #[test]
+     fn test_0x08_php() {
+         let mut cpu = CPU::new();
+         cpu.status.insert(CpuFlags::NEGATIVE);
+         cpu.run(vec![0x08, 0x00]);
+
+         let recovered = CpuFlags::from_bits(cpu.pop_stack()).unwrap();
+         assert!(recovered.contains(CpuFlags::NEGATIVE));
+         assert!(recovered.contains(CpuFlags::BREAK));
+         assert!(recovered.contains(CpuFlags::BREAK2));
+         assert!(!recovered.contains(CpuFlags::OVERFLOW));
      }
 }
