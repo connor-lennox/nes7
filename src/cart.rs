@@ -30,7 +30,7 @@ impl Cartridge {
         }
 
         // Get the mapper this cartridge is using
-        let mapper = (&data[6] & 0b1111_0000) | (&data[7] >> 4); 
+        let mapper = (&data[7] & 0b1111_0000) | (&data[6] >> 4); 
 
         // The iNES rom type is specified here. Currently only supporting iNES 1.0
         let version = data[7] >> 2 & 0b0011;
@@ -85,6 +85,7 @@ impl Mem for Cartridge {
 }
 
 
+#[cfg(test)]
 pub mod test {
     use super::*;
 
@@ -110,5 +111,27 @@ pub mod test {
         create_cart(vec![
             0x4E, 0x45, 0x53, 0x1A, 0x02, 0x01, 0x31, 00, 00, 00, 00, 00, 00, 00, 00, 00,
         ], false, vec![1; 2 * PRG_PAGE_SIZE], vec![2; 1 * CHR_PAGE_SIZE])
+    }
+
+    #[test]
+    fn default_cart_correct_values() {
+        let cart = test_cart();
+
+        assert_eq!(cart.prg_rom.len(), 2 * PRG_PAGE_SIZE);
+        assert_eq!(cart.chr_rom.len(), 1 * CHR_PAGE_SIZE);
+        assert_eq!(cart.mirroring, Mirroring::VERTICAL);
+        assert_eq!(cart.mapper, 3);
+    }
+
+    #[test]
+    fn test_with_trainer() {
+        let cart = create_cart(vec![
+            0x4E, 0x45, 0x53, 0x1A, 0x02, 0x01, 0x31 | 0b100, 00, 00, 00, 00, 00, 00, 00, 00, 00,
+        ], true, vec![1; 2 * PRG_PAGE_SIZE], vec![2; 1 * CHR_PAGE_SIZE]);
+
+        assert_eq!(cart.prg_rom.len(), 2 * PRG_PAGE_SIZE);
+        assert_eq!(cart.chr_rom.len(), 1 * CHR_PAGE_SIZE);
+        assert_eq!(cart.mirroring, Mirroring::VERTICAL);
+        assert_eq!(cart.mapper, 3);
     }
 }
