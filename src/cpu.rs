@@ -2,6 +2,7 @@ use crate::cart::Cartridge;
 use crate::opcodes::{self, Op, OpWithMode, Opcode, OPCODE_MAP};
 use crate::bus::{self, Bus};
 use bitflags::bitflags;
+use enum_dispatch::enum_dispatch;
 
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
@@ -19,6 +20,7 @@ pub enum AddressingMode {
     Accumulator,
 }
 
+#[enum_dispatch]
 pub trait Mem {
     fn mem_read(&self, addr: u16) -> u8;
     fn mem_write(&mut self, addr: u16, value: u8);
