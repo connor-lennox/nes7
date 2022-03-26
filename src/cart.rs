@@ -73,6 +73,7 @@ pub trait CartMem {
 #[enum_dispatch(Mem, CartMem)]
 pub enum Cartridge {
     NROM,
+    UxROM,
 }
 
 
@@ -109,6 +110,44 @@ impl Mem for NROM {
 impl CartMem for NROM {
     fn chr_read(&self, addr:u16) -> u8 { self.chr_rom[addr as usize] }
     fn chr_write(&mut self, _:u16) { panic!("Attempted to write to CHR ROM on NROM") }
+    fn get_mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+
+//// UxROM: Mapper 2 ////
+pub struct UxROM {
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mirroring: Mirroring,
+    active_prg: usize,
+}
+
+impl UxROM {
+    pub fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+        UxROM { prg_rom, chr_rom, mirroring, active_prg: 0 }
+    }
+}
+
+impl Mem for UxROM {
+    fn mem_read(&self, addr: u16) -> u8 {
+        // Ignore the MSB as this will always be 1
+        let shifted: usize = (addr & 0b01111111_11111111) as usize;
+        match addr {
+            0x8000..=0xBFFF => self.prg_rom[(self.active_prg * 0x4000) + shifted],      // Variable bank
+            0xC000..=0xFFFF => self.prg_rom[(self.prg_rom.len() - 0x4000) + shifted],   // Last bank
+            _ => panic!("Invalid PRG ROM read address {} on UxROM", addr)
+        }
+    }
+
+    fn mem_write(&mut self, _: u16, value: u8) {
+        // Writing to memory selects the active prg rom bank
+        self.active_prg = value as usize;
+    }
+}
+
+impl CartMem for UxROM {
+    fn chr_read(&self, addr:u16) -> u8 { self.chr_rom[addr as usize] }
+    fn chr_write(&mut self, _:u16) { panic!("Attempted to write to CHR ROM on UxROM") }
     fn get_mirroring(&self) -> Mirroring { self.mirroring }
 }
 
