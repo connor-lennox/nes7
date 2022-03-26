@@ -17,7 +17,7 @@ const PRG_PAGE_SIZE: usize = 16384;
 const CHR_PAGE_SIZE: usize = 8192;
 
 
-fn from_binary(data: &Vec<u8>) -> Result<Cartridge, String> {
+pub fn from_binary(data: &Vec<u8>) -> Result<Cartridge, String> {
     // Check magic string
     if &data[0..4] != NES_TAG {
         return Err("File is not in valid iNES format".to_string());
