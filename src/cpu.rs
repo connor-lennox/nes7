@@ -98,59 +98,28 @@ impl CPU {
         }
     }
 
-    fn get_operand_addr(&mut self, mode: &AddressingMode) -> u16 {
+    fn get_operand_addr(&self, mode: &AddressingMode) -> u16 {
         match mode {
-            AddressingMode::Immediate => {
-                let addr = self.program_counter;
-                self.program_counter += 1;
-                addr
-            },
-            AddressingMode::ZeroPage => {
-                let addr = self.mem_read(self.program_counter) as u16;
-                self.program_counter += 1;
-                addr
-            },
-            AddressingMode::ZeroPage_X => {
-                let addr = self.mem_read(self.program_counter).wrapping_add(self.register_x) as u16;
-                self.program_counter += 1;
-                addr
-            },
-            AddressingMode::ZeroPage_Y => {
-                let addr = self.mem_read(self.program_counter).wrapping_add(self.register_y) as u16;
-                self.program_counter += 1;
-                addr
-            },
-            AddressingMode::Absolute => {
-                let addr = self.mem_read_u16(self.program_counter);
-                self.program_counter += 2;
-                addr
-            },
-            AddressingMode::Absolute_X => {
-                let addr = self.mem_read_u16(self.program_counter).wrapping_add(self.register_x as u16);
-                self.program_counter += 2;
-                addr
-            },
-            AddressingMode::Absolute_Y => {
-                let addr = self.mem_read_u16(self.program_counter).wrapping_add(self.register_y as u16);
-                self.program_counter += 2;
-                addr
-            },
+            AddressingMode::Immediate => self.program_counter,
+            AddressingMode::ZeroPage => self.mem_read(self.program_counter) as u16,
+            AddressingMode::ZeroPage_X => self.mem_read(self.program_counter).wrapping_add(self.register_x) as u16,
+            AddressingMode::ZeroPage_Y => self.mem_read(self.program_counter).wrapping_add(self.register_y) as u16,
+            AddressingMode::Absolute => self.mem_read_u16(self.program_counter),
+            AddressingMode::Absolute_X => self.mem_read_u16(self.program_counter).wrapping_add(self.register_x as u16),
+            AddressingMode::Absolute_Y => self.mem_read_u16(self.program_counter).wrapping_add(self.register_y as u16),
             AddressingMode::Indirect => {
                 // Get the bytes at the PC, this is the address of the address we want (two levels of deref).
                 let ptr = self.mem_read_u16(self.program_counter);
-                self.program_counter += 2;
                 self.mem_read_u16(ptr)
             },
             AddressingMode::Indirect_X => {
                 let ptr = (self.mem_read(self.program_counter) as u8).wrapping_add(self.register_x);
-                self.program_counter += 1;
                 let lo = self.mem_read(ptr as u16);
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16);
                 (hi as u16) << 8 | (lo as u16)
             },
             AddressingMode::Indirect_Y => {
                 let ptr = self.mem_read(self.program_counter);
-                self.program_counter += 1;
                 let lo = self.mem_read(ptr as u16);
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16);
                 let deref_addr = (hi as u16) << 8 | (lo as u16);
@@ -158,6 +127,24 @@ impl CPU {
             },
             AddressingMode::Accumulator => panic!("Cannot get address of accumulator"),
         }
+    }
+
+    fn get_operand_addr_and_step(&mut self, mode: &AddressingMode) -> u16 {
+        let res = self.get_operand_addr(mode);
+        self.program_counter += match mode {
+            AddressingMode::Immediate => 1,
+            AddressingMode::ZeroPage => 1,
+            AddressingMode::ZeroPage_X => 1,
+            AddressingMode::ZeroPage_Y => 1,
+            AddressingMode::Absolute => 2,
+            AddressingMode::Absolute_X => 2,
+            AddressingMode::Absolute_Y => 2,
+            AddressingMode::Indirect => 2,
+            AddressingMode::Indirect_X => 1,
+            AddressingMode::Indirect_Y => 1,
+            AddressingMode::Accumulator => panic!("Cannot get address of accumulator"),
+        };
+        res
     }
 
     fn branch(&mut self, condition: bool) {
@@ -303,7 +290,7 @@ impl CPU {
         match mode {
             AddressingMode::Accumulator => self.asl_acc(),
             _ => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let v = self.mem_read(addr);
                 self.status.set(CpuFlags::CARRY, v & 0b1000_0000 != 0);
                 self.mem_write(addr, v << 1);
@@ -322,7 +309,7 @@ impl CPU {
         match mode {
             AddressingMode::Accumulator => self.lsr_acc(),
             _ => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let v = self.mem_read(addr);
                 self.status.set(CpuFlags::CARRY, v & 0b0000_0001 != 0);
                 self.mem_write(addr, v >> 1);
@@ -344,7 +331,7 @@ impl CPU {
         match mode {
             AddressingMode::Accumulator => self.rol_acc(),
             _ => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let v = self.mem_read(addr);
                 let res = (v << 1) | (if self.status.contains(CpuFlags::CARRY) {1} else {0});
                 self.status.set(CpuFlags::CARRY, v & 0b1000_0000 != 0);
@@ -367,7 +354,7 @@ impl CPU {
         match mode {
             AddressingMode::Accumulator => self.ror_acc(),
             _ => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let v = self.mem_read(addr);
                 let res = (v >> 1) | (if self.status.contains(CpuFlags::CARRY) {0b1000_0000} else {0});
                 self.status.set(CpuFlags::CARRY, v & 0b0000_0001 != 0);
@@ -444,69 +431,69 @@ impl CPU {
     pub fn interpret_op_with_mode(&mut self, opcode: &OpWithMode, mode: &AddressingMode) {
         match opcode {
             OpWithMode::ADC => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let value = self.mem_read(addr);
                 self.adc(value);
             },
             OpWithMode::AND => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let value = self.mem_read(addr);
                 self.and(value);
             },
             OpWithMode::ASL => self.asl(mode),
             OpWithMode::BIT => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let value = self.mem_read(addr);
                 self.bit(value);
             },
             OpWithMode::CMP => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.cmp(self.register_a, addr);
             },
             OpWithMode::CPX => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.cmp(self.register_x, addr);
             },
             OpWithMode::CPY => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.cmp(self.register_y, addr);
             },
             OpWithMode::DEC => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.dec(addr);
             },
             OpWithMode::EOR => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let value = self.mem_read(addr);
                 self.register_a = self.register_a ^ value;
                 self.update_zero_negative_flags(self.register_a);
             },
             OpWithMode::INC => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.inc(addr);
             },
             OpWithMode::JMP => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.program_counter = self.mem_read_u16(addr);
             },
             OpWithMode::LDA => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let value = self.mem_read(addr);
                 self.lda(value);
             },
             OpWithMode::LDX => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.register_x = self.mem_read(addr);
                 self.update_zero_negative_flags(self.register_x);
             },
             OpWithMode::LDY => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.register_y = self.mem_read(addr);
                 self.update_zero_negative_flags(self.register_y);
             },
             OpWithMode::LSR => self.lsr(mode),
             OpWithMode::ORA => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let value = self.mem_read(addr);
                 self.register_a = self.register_a | value;
                 self.update_zero_negative_flags(self.register_a);
@@ -514,21 +501,21 @@ impl CPU {
             OpWithMode::ROL => self.rol(mode),
             OpWithMode::ROR => self.ror(mode),
             OpWithMode::SBC => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 let value = self.mem_read(addr);
                 // SBC is actually ADC but with 2's complement of the value:
                 self.adc(((value as i8).wrapping_neg().wrapping_sub(1)) as u8);
             },
             OpWithMode::STA => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.mem_write(addr, self.register_a);
             },
             OpWithMode::STX => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.mem_write(addr, self.register_x);
             },
             OpWithMode::STY => {
-                let addr = self.get_operand_addr(mode);
+                let addr = self.get_operand_addr_and_step(mode);
                 self.mem_write(addr, self.register_y);
             },
         }
@@ -545,6 +532,14 @@ impl CPU {
                 return *cycles;
             },
         }
+    }
+
+    pub fn step(&mut self) -> u8 {
+        let code = self.mem_read(self.program_counter);
+        self.program_counter += 1;
+        let opcode = OPCODE_MAP.get(&code).expect(&format!("Unknown opcode {:x}", code));
+
+        self.interpret(opcode)
     }
 
     pub fn run(&mut self, program: Vec<u8>) {
@@ -570,7 +565,7 @@ impl CPU {
         }
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
