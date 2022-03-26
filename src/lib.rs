@@ -1,5 +1,5 @@
 pub mod cpu;
 pub mod cart;
-mod bus;
+pub mod bus;
 mod ppu;
-mod opcodes;
+pub mod opcodes;

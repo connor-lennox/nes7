@@ -98,7 +98,7 @@ impl CPU {
         }
     }
 
-    fn get_operand_addr(&self, mode: &AddressingMode) -> u16 {
+    pub fn get_operand_addr(&self, mode: &AddressingMode) -> u16 {
         match mode {
             AddressingMode::Immediate => self.program_counter,
             AddressingMode::ZeroPage => self.mem_read(self.program_counter) as u16,
