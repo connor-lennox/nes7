@@ -1,3 +1,4 @@
+use crate::cart::Cartridge;
 use crate::opcodes::{self, Op, OpWithMode, Opcode, OPCODE_MAP};
 use crate::bus::{self, Bus};
 use bitflags::bitflags;
@@ -565,6 +566,19 @@ impl CPU {
                 return;
             }
         }
+    }
+
+    fn reset(&mut self) {
+        self.register_a = 0;
+        self.register_x = 0;
+        self.register_y = 0;
+        self.stack_pointer = 0xFD;
+        self.program_counter = self.mem_read_u16(0xFFFC);
+    }
+
+    pub fn load_cartridge(&mut self, cart: Cartridge) {
+        self.bus.load_cartridge(cart);
+        self.reset();
     }
 }
 

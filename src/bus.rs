@@ -47,4 +47,9 @@ impl Bus {
             ppu: PPU::new(chr, mirrored),
         }
     }
+
+    pub fn load_cartridge(&mut self, cart: Cartridge) {
+        self.cartridge = cart;
+        // TODO: Push chr rom to ppu
+    }
 }
