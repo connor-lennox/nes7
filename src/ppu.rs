@@ -1,8 +1,6 @@
-use crate::{cart::Mirroring, cpu::Mem};
+use crate::{cart::{Mirroring, Cartridge}, cpu::Mem};
 
 pub struct PPU {
-    pub chr_rom: Vec<u8>,
-    pub mirroring: Mirroring,
     pub palette_table: [u8; 32],
     pub vram: [u8; 2048],
     pub oam: [u8; 256],
@@ -20,13 +18,15 @@ impl Mem for PPU {
 }
 
 impl PPU {
-    pub fn new(chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+    pub fn new() -> Self {
         PPU { 
-            chr_rom,
-            mirroring,
             palette_table: [0; 32],
             vram: [0; 2048],
             oam: [0; 256],
         }
+    }
+
+    pub fn tick(&mut self, cycles: u8, cart: &Cartridge) {
+
     }
 }

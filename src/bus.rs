@@ -37,19 +37,15 @@ impl Mem for Bus {
 
 impl Bus {
     pub fn new(cart: Cartridge) -> Self {
-        // Extract chr_rom/mirroring mode to copy into PPU
-        let chr = cart.chr_rom.clone();
-        let mirrored = cart.mirroring.clone();
-
         Bus {
             cpu_vram: [0; 2048],
             cartridge: cart,
-            ppu: PPU::new(chr, mirrored),
+            ppu: PPU::new(),
         }
     }
 
     pub fn load_cartridge(&mut self, cart: Cartridge) {
         self.cartridge = cart;
-        // TODO: Push chr rom to ppu
+        // TODO: Push chr rom to ppu?
     }
 }
