@@ -1,6 +1,6 @@
 use crate::cpu::Mem;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Mirroring {
     VERTICAL,
     HORIZONTAL,
