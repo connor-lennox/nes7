@@ -123,7 +123,8 @@ fn get_opcode_with_mode(cpu: &CPU, pc: u16, op: &OpWithMode, code: &u8, len: &u8
 
 fn get_cpu_opcode(cpu: &CPU) -> String {
     let pc = cpu.program_counter;
-    let opcode = OPCODE_MAP.get(&cpu.mem_read(pc)).unwrap();
+    let op_hex = cpu.mem_read(pc);
+    let opcode = OPCODE_MAP.get(&op_hex).unwrap_or_else(|| panic!("Unimplemented opcode 0x{:02X}", op_hex));
     let hex = match opcode {
         Opcode::Op { op, code, len, cycles: _ } => get_opcode_no_mode(cpu, pc, op, code, len),
         Opcode::OpWithMode { op, code, len, cycles: _, mode } => get_opcode_with_mode(cpu, pc, op, code, len, mode),
