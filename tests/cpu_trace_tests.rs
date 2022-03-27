@@ -168,7 +168,7 @@ fn run_trace_test() {
     cpu.status = CpuFlags::from_bits(0x24).unwrap();
 
     // NESTEST ends at address 0xC66E
-    while cpu.program_counter != 0xC66E {
+    while cpu.program_counter != 0xC6BC {
         let trace = get_cpu_trace(&cpu);
         // Specifically trimming the reference to remove PPU/CPU cycle counts
         let reference = String::from(&log_lines.next().unwrap().unwrap()[..73]);
