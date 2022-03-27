@@ -26,19 +26,6 @@ fn get_opcode_no_mode(cpu: &CPU, pc: u16, op: &Op, code: &u8, len: &u8) -> Strin
         },
         3 => {
             let address = cpu.mem_read_u16(pc + 1);
-            // // JMP Indirect
-            // if *code == 0x6c {
-            //     let jmp_addr = if address & 0x00FF == 0x00FF {
-            //         let lo = cpu.mem_read(address);
-            //         let hi = cpu.mem_read(address & 0xFF00);
-            //         (hi as u16) << 8 | (lo as u16)
-            //     } else {
-            //         cpu.mem_read_u16(address)
-            //     };
-            //     format!("(${:04X}) = {:04X}", address, jmp_addr)
-            // } else {
-            //     format!("${:04X}", address)
-            // }
             format!("${:04X}", address)
         },
         _ => String::from(""),
@@ -49,9 +36,9 @@ fn get_opcode_no_mode(cpu: &CPU, pc: u16, op: &Op, code: &u8, len: &u8) -> Strin
 
 fn get_opcode_with_mode(cpu: &CPU, pc: u16, op: &OpWithMode, code: &u8, len: &u8, addr_mode: &AddressingMode) -> String {
     let (mem_addr, stored_value) = match addr_mode {
-        AddressingMode::Immediate => (0, 0),
+        AddressingMode::Immediate | AddressingMode::Accumulator => (0, 0),
         _ => {
-            let addr = cpu.get_operand_addr(&addr_mode);
+            let addr = cpu.get_operand_addr(&addr_mode, pc + 1);
             (addr, cpu.mem_read(addr))
         }
     };
@@ -115,6 +102,16 @@ fn get_opcode_with_mode(cpu: &CPU, pc: u16, op: &OpWithMode, code: &u8, len: &u8
                     "${:04X},Y @ {:04X} = {:02X}",
                     address, mem_addr, stored_value
                 ),
+                AddressingMode::Indirect => {
+                    let jmp_addr = if address & 0x00FF == 0x00FF {
+                        let lo = cpu.mem_read(address);
+                        let hi = cpu.mem_read(address & 0xFF00);
+                        (hi as u16) << 8 | (lo as u16)
+                    } else {
+                        cpu.mem_read_u16(address)
+                    };
+                    format!("(${:04X}) = {:04X}", address, jmp_addr)
+                },
                 _ => panic!("unexpected addressing mode {:?} has ops-len 3. code {:02X}", addr_mode, code), 
             }
         },
@@ -175,6 +172,7 @@ fn run_trace_test() {
         // Specifically trimming the reference to remove PPU/CPU cycle counts
         let reference = String::from(&log_lines.next().unwrap().unwrap()[..73]);
         assert_eq!(trace, reference);
+        println!("{}", trace);
         cpu.step();
     }
 }

@@ -98,28 +98,35 @@ impl CPU {
         }
     }
 
-    pub fn get_operand_addr(&self, mode: &AddressingMode) -> u16 {
+    pub fn get_operand_addr(&self, mode: &AddressingMode, from: u16) -> u16 {
         match mode {
-            AddressingMode::Immediate => self.program_counter,
-            AddressingMode::ZeroPage => self.mem_read(self.program_counter) as u16,
-            AddressingMode::ZeroPage_X => self.mem_read(self.program_counter).wrapping_add(self.register_x) as u16,
-            AddressingMode::ZeroPage_Y => self.mem_read(self.program_counter).wrapping_add(self.register_y) as u16,
-            AddressingMode::Absolute => self.mem_read_u16(self.program_counter),
-            AddressingMode::Absolute_X => self.mem_read_u16(self.program_counter).wrapping_add(self.register_x as u16),
-            AddressingMode::Absolute_Y => self.mem_read_u16(self.program_counter).wrapping_add(self.register_y as u16),
+            AddressingMode::Immediate => from,
+            AddressingMode::ZeroPage => self.mem_read(from) as u16,
+            AddressingMode::ZeroPage_X => self.mem_read(from).wrapping_add(self.register_x) as u16,
+            AddressingMode::ZeroPage_Y => self.mem_read(from).wrapping_add(self.register_y) as u16,
+            AddressingMode::Absolute => self.mem_read_u16(from),
+            AddressingMode::Absolute_X => self.mem_read_u16(from).wrapping_add(self.register_x as u16),
+            AddressingMode::Absolute_Y => self.mem_read_u16(from).wrapping_add(self.register_y as u16),
             AddressingMode::Indirect => {
                 // Get the bytes at the PC, this is the address of the address we want (two levels of deref).
-                let ptr = self.mem_read_u16(self.program_counter);
-                self.mem_read_u16(ptr)
+                // However, we can't read over a page boundary!
+                let ptr = self.mem_read_u16(from);
+                if ptr & 0x00FF == 0x00FF {
+                    let lo = self.mem_read(ptr);
+                    let hi = self.mem_read(ptr & 0xFF00);
+                    (hi as u16) << 8 | (lo as u16)
+                } else {
+                    self.mem_read_u16(ptr) 
+                }
             },
             AddressingMode::Indirect_X => {
-                let ptr = (self.mem_read(self.program_counter) as u8).wrapping_add(self.register_x);
+                let ptr = (self.mem_read(from) as u8).wrapping_add(self.register_x);
                 let lo = self.mem_read(ptr as u16);
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16);
                 (hi as u16) << 8 | (lo as u16)
             },
             AddressingMode::Indirect_Y => {
-                let ptr = self.mem_read(self.program_counter);
+                let ptr = self.mem_read(from);
                 let lo = self.mem_read(ptr as u16);
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16);
                 let deref_addr = (hi as u16) << 8 | (lo as u16);
@@ -130,7 +137,7 @@ impl CPU {
     }
 
     fn get_operand_addr_and_step(&mut self, mode: &AddressingMode) -> u16 {
-        let res = self.get_operand_addr(mode);
+        let res = self.get_operand_addr(mode, self.program_counter);
         self.program_counter += match mode {
             AddressingMode::Immediate => 1,
             AddressingMode::ZeroPage => 1,
@@ -149,8 +156,8 @@ impl CPU {
 
     fn branch(&mut self, condition: bool) {
         let jump_amt: i8 = self.mem_read(self.program_counter) as i8;
-        let jump_addr = self.program_counter.wrapping_add(jump_amt as u16);
         self.program_counter += 1;
+        let jump_addr = self.program_counter.wrapping_add(jump_amt as u16);
         if condition {
             self.program_counter = jump_addr;
         }
@@ -238,6 +245,7 @@ impl CPU {
     fn dec(&mut self, addr: u16) {
         let res = self.mem_read(addr).wrapping_sub(1);
         self.mem_write(addr, res);
+        self.update_zero_negative_flags(res);
     }
 
     fn inx(&mut self) {
@@ -253,6 +261,7 @@ impl CPU {
     fn inc(&mut self, addr: u16) {
         let res = self.mem_read(addr).wrapping_add(1);
         self.mem_write(addr, res);
+        self.update_zero_negative_flags(res);
     }
 
     fn jsr(&mut self) {
@@ -378,7 +387,7 @@ impl CPU {
         // Z flag is set to (register_a AND value)
         self.status.set(CpuFlags::NEGATIVE, value & 0b1000_0000 == 0b1000_0000);
         self.status.set(CpuFlags::OVERFLOW, value & 0b0100_0000 == 0b0100_0000);
-        self.status.set(CpuFlags::ZERO, self.register_a & value != 0);
+        self.status.set(CpuFlags::ZERO, self.register_a & value == 0);
     }
 
     fn update_zero_negative_flags(&mut self, result: u8) {
@@ -412,8 +421,11 @@ impl CPU {
             Op::NOP => (),
             Op::PHA => self.push_stack(self.register_a),
             Op::PHP => self.php(),
-            Op::PLA => self.register_a = self.pop_stack(),
-            Op::PLP => self.status.bits = self.pop_stack() & 0b1110_1111,
+            Op::PLA => {
+                self.register_a = self.pop_stack();
+                self.update_zero_negative_flags(self.register_a);   
+            },
+            Op::PLP => self.status.bits = (self.pop_stack() & 0b1110_1111) | (self.status.bits & 0b0010_0000),
             Op::RTI => self.rti(),
             Op::RTS => self.program_counter = self.pop_stack_16() + 1,
             Op::SEC => self.status.insert(CpuFlags::CARRY),
@@ -421,7 +433,10 @@ impl CPU {
             Op::SEI => self.status.insert(CpuFlags::INTERRUPT),
             Op::TAX => self.tax(),
             Op::TAY => self.tay(),
-            Op::TSX => self.register_x = self.stack_pointer,
+            Op::TSX => {
+                self.register_x = self.stack_pointer;
+                self.update_zero_negative_flags(self.register_x);
+            },
             Op::TXA => self.txa(),
             Op::TXS => self.stack_pointer = self.register_x,
             Op::TYA => self.tya(),
@@ -474,7 +489,7 @@ impl CPU {
             },
             OpWithMode::JMP => {
                 let addr = self.get_operand_addr_and_step(mode);
-                self.program_counter = self.mem_read_u16(addr);
+                self.program_counter = addr;
             },
             OpWithMode::LDA => {
                 let addr = self.get_operand_addr_and_step(mode);
@@ -748,7 +763,7 @@ mod test {
          cpu.status.remove(CpuFlags::CARRY);
          // Branch reads the relative address from 0x03 of 4, causing execution
          // to jump past the BRK and execute the LDA.
-         cpu.run(vec![0x90, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+         cpu.run(vec![0x90, 0x02, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
          assert_eq!(cpu.register_a, 0x01);
      }
@@ -757,7 +772,7 @@ mod test {
      fn test_0xb0_bcs() {
          let mut cpu = test_cpu();
          cpu.status.insert(CpuFlags::CARRY);
-         cpu.run(vec![0xb0, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+         cpu.run(vec![0xb0, 0x02, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
          assert_eq!(cpu.register_a, 0x01);
      }
@@ -766,7 +781,7 @@ mod test {
      fn test_0xf0_beq() {
         let mut cpu = test_cpu();
         cpu.status.insert(CpuFlags::ZERO);
-        cpu.run(vec![0xf0, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+        cpu.run(vec![0xf0, 0x02, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
         assert_eq!(cpu.register_a, 0x01);
      }
@@ -775,7 +790,7 @@ mod test {
      fn test_0x30_bmi() {
         let mut cpu = test_cpu();
         cpu.status.insert(CpuFlags::NEGATIVE);
-        cpu.run(vec![0x30, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+        cpu.run(vec![0x30, 0x02, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
         assert_eq!(cpu.register_a, 0x01);
      }
@@ -784,7 +799,7 @@ mod test {
      fn test_0xd0_bne() {
         let mut cpu = test_cpu();
         cpu.status.remove(CpuFlags::ZERO);
-        cpu.run(vec![0xd0, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+        cpu.run(vec![0xd0, 0x02, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
         assert_eq!(cpu.register_a, 0x01);
      }
@@ -793,7 +808,7 @@ mod test {
      fn test_0x10_bpl() {
         let mut cpu = test_cpu();
         cpu.status.remove(CpuFlags::NEGATIVE);
-        cpu.run(vec![0x10, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+        cpu.run(vec![0x10, 0x02, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
         assert_eq!(cpu.register_a, 0x01);
      }
@@ -802,7 +817,7 @@ mod test {
      fn test_0x50_bvc() {
         let mut cpu = test_cpu();
         cpu.status.remove(CpuFlags::OVERFLOW);
-        cpu.run(vec![0x50, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+        cpu.run(vec![0x50, 0x02, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
         assert_eq!(cpu.register_a, 0x01);
      }
@@ -811,7 +826,7 @@ mod test {
      fn test_0x70_bvs() {
         let mut cpu = test_cpu();
         cpu.status.insert(CpuFlags::OVERFLOW);
-        cpu.run(vec![0x70, 0x03, 0x00, 0x02, 0xa9, 0x01, 0x00]);
+        cpu.run(vec![0x70, 0x02, 0x00, 0x02, 0xa9, 0x01, 0x00]);
 
         assert_eq!(cpu.register_a, 0x01);
      }
@@ -1012,7 +1027,7 @@ mod test {
         cpu.register_a = 0b0000_0001;
         cpu.run(vec![0x24, 0x03, 0x00, 0b1100_0001]);
 
-        assert!(cpu.status.contains(CpuFlags::ZERO));
+        assert!(!cpu.status.contains(CpuFlags::ZERO));
         assert!(cpu.status.contains(CpuFlags::NEGATIVE));
         assert!(cpu.status.contains(CpuFlags::OVERFLOW));
      }
@@ -1027,11 +1042,11 @@ mod test {
      }
 
      #[test]
-     fn test_0x4c_jmp_absolute() {
+     fn test_0x4c_jmp_indirect() {
          let mut cpu = test_cpu();
-         // Absolute address of 0x0003, grabs value of 0x0006 and jumps there.
+         // Read address of 0x0003, indirect grabs value of 0x0006 and jumps there.
          // Executes a BRK immediately, PC is left at 0x0007.
-         cpu.run(vec![0x4c, 0x03, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00]);
+         cpu.run(vec![0x6c, 0x03, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00]);
          
          assert_eq!(cpu.program_counter, 0x07);
      }
