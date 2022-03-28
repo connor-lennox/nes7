@@ -8,7 +8,7 @@ use nes7::opcodes::{Opcode, Op, OpWithMode, OPCODE_MAP};
 use nes7::cart;
 
 
-fn get_opcode_no_mode(cpu: &CPU, pc: u16, op: &Op, code: &u8, len: &u8) -> String {
+fn get_opcode_no_mode(cpu: &mut CPU, pc: u16, op: &Op, _: &u8, len: &u8) -> String {
     let hex = match len {
         1 => format!("{:02X}", cpu.mem_read(pc)),
         2 => format!("{:02X} {:02X}", cpu.mem_read(pc), cpu.mem_read(pc+1)),
@@ -34,7 +34,7 @@ fn get_opcode_no_mode(cpu: &CPU, pc: u16, op: &Op, code: &u8, len: &u8) -> Strin
     format!("{:8}  {: >4?} {}", hex, op, ex)
 }
 
-fn get_opcode_with_mode(cpu: &CPU, pc: u16, op: &OpWithMode, code: &u8, len: &u8, addr_mode: &AddressingMode) -> String {
+fn get_opcode_with_mode(cpu: &mut CPU, pc: u16, op: &OpWithMode, code: &u8, len: &u8, addr_mode: &AddressingMode) -> String {
     let (mem_addr, stored_value) = match addr_mode {
         AddressingMode::Immediate | AddressingMode::Accumulator => (0, 0),
         _ => {
@@ -121,7 +121,7 @@ fn get_opcode_with_mode(cpu: &CPU, pc: u16, op: &OpWithMode, code: &u8, len: &u8
     format!("{:8}  {: >4?} {}", hex, op, ex)
 }
 
-fn get_cpu_opcode(cpu: &CPU) -> String {
+fn get_cpu_opcode(cpu: &mut CPU) -> String {
     let pc = cpu.program_counter;
     let op_hex = cpu.mem_read(pc);
     let opcode = OPCODE_MAP.get(&op_hex).unwrap_or_else(|| panic!("Unimplemented opcode 0x{:02X}", op_hex));
@@ -132,12 +132,12 @@ fn get_cpu_opcode(cpu: &CPU) -> String {
     format!("{:04X}  {}", pc, hex)
 }
 
-fn get_cpu_registers(cpu: &CPU) -> String {
+fn get_cpu_registers(cpu: &mut CPU) -> String {
     format!("A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}", 
         cpu.register_a, cpu.register_x, cpu.register_y, cpu.status.bits(), cpu.stack_pointer)
 }
 
-fn get_cpu_trace(cpu: &CPU) -> String {
+fn get_cpu_trace(cpu: &mut CPU) -> String {
     let opcode_str = get_cpu_opcode(cpu);
     let register_str = get_cpu_registers(cpu);
     format!("{:47} {}", opcode_str, register_str)
@@ -169,7 +169,7 @@ fn run_trace_test() {
 
     // NESTEST ends at address 0xC66E
     while cpu.program_counter != 0xC6BC {
-        let trace = get_cpu_trace(&cpu);
+        let trace = get_cpu_trace(&mut cpu);
         // Specifically trimming the reference to remove PPU/CPU cycle counts
         let reference = String::from(&log_lines.next().unwrap().unwrap()[..73]);
         assert_eq!(trace, reference);

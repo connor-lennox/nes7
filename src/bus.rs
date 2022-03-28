@@ -1,4 +1,4 @@
-use crate::{cpu::Mem, cart::Cartridge, ppu::PPU};
+use crate::{cpu::Mem, cart::{Cartridge, CartMem}, ppu::PPU};
 
 const RAM_START: u16 =      0x0000;
 const RAM_END: u16 =        0x1FFF;
@@ -16,7 +16,7 @@ pub struct Bus {
 }
 
 impl Mem for Bus {
-    fn mem_read(&self, addr: u16) -> u8 {
+    fn mem_read(&mut self, addr: u16) -> u8 {
         match addr {
             RAM_START..=RAM_END => self.cpu_vram[(addr & 0x7FF) as usize],
             PPU_REGISTER_START..=PPU_REGISTER_END => self.ppu.mem_read(addr),

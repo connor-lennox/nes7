@@ -20,12 +20,11 @@ pub enum AddressingMode {
     Accumulator,
 }
 
-#[enum_dispatch]
 pub trait Mem {
-    fn mem_read(&self, addr: u16) -> u8;
+    fn mem_read(&mut self, addr: u16) -> u8;
     fn mem_write(&mut self, addr: u16, value: u8);
 
-    fn mem_read_u16(&self, addr: u16) -> u16 {
+    fn mem_read_u16(&mut self, addr: u16) -> u16 {
         // The NES packs 16-bit values in little endian
         let lo = self.mem_read(addr) as u16;
         let hi = self.mem_read(addr + 1) as u16;
@@ -76,7 +75,7 @@ pub struct CPU {
 }
 
 impl Mem for CPU {
-    fn mem_read(&self, addr: u16) -> u8 {
+    fn mem_read(&mut self, addr: u16) -> u8 {
         self.bus.mem_read(addr)
     }
 
@@ -98,7 +97,7 @@ impl CPU {
         }
     }
 
-    pub fn get_operand_addr(&self, mode: &AddressingMode, from: u16) -> u16 {
+    pub fn get_operand_addr(&mut self, mode: &AddressingMode, from: u16) -> u16 {
         match mode {
             AddressingMode::Immediate => from,
             AddressingMode::ZeroPage => self.mem_read(from) as u16,
