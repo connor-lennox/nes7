@@ -1,7 +1,5 @@
 use enum_dispatch::enum_dispatch;
 
-use crate::cpu::Mem;
-
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Mirroring {
     VERTICAL,

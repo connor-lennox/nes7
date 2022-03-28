@@ -2,7 +2,6 @@ use crate::cart::Cartridge;
 use crate::opcodes::{Op, OpWithMode, Opcode, OPCODE_MAP};
 use crate::bus::Bus;
 use bitflags::bitflags;
-use enum_dispatch::enum_dispatch;
 
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
