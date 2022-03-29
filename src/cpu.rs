@@ -80,7 +80,7 @@ impl Default for CPU {
             register_y: 0, 
             status: CpuFlags::empty(), 
             program_counter: 0, 
-            stack_pointer: 0, 
+            stack_pointer: 0xFF, 
             ram: [0; 2048] 
         } 
     }
@@ -637,6 +637,7 @@ mod test {
         let mut addr = 0;
         for code in opcodes.iter() {
             cpu.ram[addr] = *code;
+            addr += 1;
         };
 
         // Run until we hit a BRK code
@@ -769,7 +770,7 @@ mod test {
          // Extra test for status flags
          let mut cpu2 = test_cpu();
          cpu2.register_y = 0;
-         run_test_opcodes(&mut cpu, vec![0x98, 0x00]);
+         run_test_opcodes(&mut cpu2, vec![0x98, 0x00]);
 
          assert!(cpu2.status.contains(CpuFlags::ZERO));
          assert!(!cpu.status.contains(CpuFlags::NEGATIVE));
@@ -1023,7 +1024,7 @@ mod test {
         let mut cpu = test_cpu();
         run_test_opcodes(&mut cpu, vec![0x20, 0x05, 0x00]);
 
-        assert_eq!(cpu.program_counter, 0x06);
+        assert_eq!(cpu.program_counter, 0x05);
         assert_eq!(cpu.pop_stack(), 0x02);
      }
 
@@ -1090,7 +1091,7 @@ mod test {
          // Executes a BRK immediately, PC is left at 0x0007.
          run_test_opcodes(&mut cpu, vec![0x6c, 0x03, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00]);
          
-         assert_eq!(cpu.program_counter, 0x07);
+         assert_eq!(cpu.program_counter, 0x06);
      }
 
      #[test]
