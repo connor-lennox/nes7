@@ -136,6 +136,22 @@ pub struct PPU {
     oam_addr: u8,
 }
 
+impl Default for PPU {
+    fn default() -> Self {
+        PPU { 
+            vram: [0; 2048],
+            palette_table: [0; 32],
+            oam: [0; 256],
+
+            control: PpuControl::new(),
+            mask: PpuMask::new(),
+            scroll: ScrollReg::new(),
+            ppu_addr: AddrReg::new(),
+            oam_addr: 0,
+        }
+    }
+}
+
 
 impl PPU {
     pub fn mem_read(&mut self, addr: u16, cart: &Cartridge) -> u8 {
@@ -220,17 +236,7 @@ impl PPU {
     }
 
     pub fn new() -> Self {
-        PPU { 
-            vram: [0; 2048],
-            palette_table: [0; 32],
-            oam: [0; 256],
-
-            control: PpuControl::new(),
-            mask: PpuMask::new(),
-            scroll: ScrollReg::new(),
-            ppu_addr: AddrReg::new(),
-            oam_addr: 0,
-        }
+        Self::default()
     }
 
     pub fn tick(&mut self, cycles: u8, cart: &Cartridge) {
