@@ -94,6 +94,7 @@ impl AddrReg {
             true => self.hi = data,
             false => self.lo = data,
         };
+        self.set_hi = !self.set_hi;
         // Shift hi byte to mirror address
         self.mirror();
     }
@@ -136,90 +137,8 @@ pub struct PPU {
     oam_addr: u8,
 }
 
-
-impl PPU {
-    pub fn mem_read(&mut self, addr: u16, cart: &Cartridge) -> u8 {
-        // PPU Reading/Writing requires the Cartridge since CHR ROM is memory-mapped within the PPU
-        match addr {
-            // Status
-            0x2002 => todo!(),
-            // OAM Data
-            0x2004 => self.oam[self.oam_addr as usize],
-            // PPU Data
-            0x2007 => {
-                let res = self.read_internal(addr, cart);
-                self.ppu_addr.increment(self.control.vram_addr_increment());
-                res
-            },
-            _ => panic!("invalid read of {:04X} on PPU", addr),
-        }
-    }
-
-    pub fn mem_write(&mut self, addr: u16, value: u8, cart: &mut Cartridge) {
-        match addr {
-            // PPU Control
-            0x2000 => self.control.update(value),
-            // Mask
-            0x2001 => self.mask.update(value),
-            // OAM Addr
-            0x2003 => self.oam_addr = value,
-            // OAM Data
-            0x2004 => {
-                self.oam[self.oam_addr as usize] = value;
-                self.oam_addr += 1;
-            }
-            // Scroll
-            0x2005 => self.scroll.update(value),
-            // PPU Address
-            0x2006 => self.ppu_addr.update(value),
-            // PPU Data
-            0x2007 => {
-                self.write_internal(self.ppu_addr.get(), value, cart);
-                self.ppu_addr.increment(self.control.vram_addr_increment());
-            },
-            _ => panic!("invalid write to {:04X} on PPU", addr),
-        }
-    }
-
-    fn mirror_vram_addr(&self, addr: u16, cart: &Cartridge) -> u16 {
-        let mirrored_vram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
-        let vram_index = mirrored_vram - 0x2000; // to vram vector
-        let name_table = vram_index / 0x400;
-        match (cart.get_mirroring(), name_table) {
-            (Mirroring::VERTICAL, 2) | (Mirroring::VERTICAL, 3) => vram_index - 0x800,
-            (Mirroring::HORIZONTAL, 2) => vram_index - 0x400,
-            (Mirroring::HORIZONTAL, 1) => vram_index - 0x400,
-            (Mirroring::HORIZONTAL, 3) => vram_index - 0x800,
-            _ => vram_index,
-        }
-    }
-
-    fn read_internal(&self, addr: u16, cart: &Cartridge) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => cart.chr_read(addr),
-            0x2000..=0x3EFF => self.vram[self.mirror_vram_addr(addr, cart) as usize],
-            0x3F00..=0x3FFF => self.palette_table[(addr & 0b0001_1111) as usize],
-            _ => panic!("Invalid read at PPU address {}", addr),
-        }
-    }
-
-    fn write_internal(&mut self, addr: u16, value: u8, cart: &mut Cartridge) {
-        match addr {
-            0x0000..=0x1FFF => cart.chr_write(addr),
-            0x2000..=0x3EFF => self.vram[self.mirror_vram_addr(addr, cart) as usize] = value,
-            0x3F00..=0x3FFF => self.palette_table[(addr & 0b0001_1111) as usize] = value,
-            _ => panic!("Invalid write at PPU address {}", addr),
-        }
-    }
-
-    pub fn oam_dma(&mut self, data: &[u8; 256]) {
-        for x in data.iter() {
-            self.oam[self.oam_addr as usize] = *x;
-            self.oam_addr = self.oam_addr.wrapping_add(1);
-        }
-    }
-
-    pub fn new() -> Self {
+impl Default for PPU {
+    fn default() -> Self {
         PPU { 
             vram: [0; 2048],
             palette_table: [0; 32],
@@ -232,8 +151,165 @@ impl PPU {
             oam_addr: 0,
         }
     }
+}
 
-    pub fn tick(&mut self, cycles: u8, cart: &Cartridge) {
 
+impl PPU {
+    pub fn oam_dma(&mut self, data: &[u8; 256]) {
+        for x in data.iter() {
+            self.oam[self.oam_addr as usize] = *x;
+            self.oam_addr = self.oam_addr.wrapping_add(1);
+        }
+    }
+
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+pub fn ppu_read(ppu: &mut PPU, cart: &Cartridge, addr: u16) -> u8 {
+    // PPU Reading/Writing requires the Cartridge since CHR ROM is memory-mapped within the PPU
+    match addr {
+        // Status
+        0x2002 => todo!(),
+        // OAM Data
+        0x2004 => ppu.oam[ppu.oam_addr as usize],
+        // PPU Data
+        0x2007 => {
+            let res = read_internal(ppu, cart, addr);
+            ppu.ppu_addr.increment(ppu.control.vram_addr_increment());
+            res
+        },
+        _ => panic!("invalid read of {:04X} on PPU", addr),
+    }
+}
+
+pub fn ppu_write(ppu: &mut PPU, cart: &mut Cartridge, addr: u16, value: u8) {
+    match addr {
+        // PPU Control
+        0x2000 => ppu.control.update(value),
+        // Mask
+        0x2001 => ppu.mask.update(value),
+        // OAM Addr
+        0x2003 => ppu.oam_addr = value,
+        // OAM Data
+        0x2004 => {
+            ppu.oam[ppu.oam_addr as usize] = value;
+            ppu.oam_addr += 1;
+        }
+        // Scroll
+        0x2005 => ppu.scroll.update(value),
+        // PPU Address
+        0x2006 => ppu.ppu_addr.update(value),
+        // PPU Data
+        0x2007 => {
+            write_internal(ppu, cart, ppu.ppu_addr.get(), value);
+            ppu.ppu_addr.increment(ppu.control.vram_addr_increment());
+        },
+        _ => panic!("invalid write to {:04X} on PPU", addr),
+    }
+}
+
+fn read_internal(ppu: &mut PPU, cart: &Cartridge, addr: u16) -> u8 {
+    match addr {
+        0x0000..=0x1FFF => cart.chr_read(addr),
+        0x2000..=0x3EFF => ppu.vram[mirror_vram_address(addr, cart.get_mirroring()) as usize],
+        0x3F00..=0x3FFF => ppu.palette_table[(addr & 0b0001_1111) as usize],
+        _ => panic!("Invalid read at PPU address {}", addr),
+    }
+}
+
+fn write_internal(ppu: &mut PPU, cart: &mut Cartridge, addr: u16, value: u8) {
+    match addr {
+        0x0000..=0x1FFF => cart.chr_write(addr),
+        0x2000..=0x3EFF => ppu.vram[mirror_vram_address(addr, cart.get_mirroring()) as usize] = value,
+        0x3F00..=0x3FFF => ppu.palette_table[(addr & 0b0001_1111) as usize] = value,
+        _ => panic!("Invalid write at PPU address {}", addr),
+    }
+}
+
+fn mirror_vram_address(addr: u16, mirroring: Mirroring) -> u16 {
+    // Applies VRAM mirroring and converts address into an index for VRAM array
+    let mirrored_vram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
+    let vram_index = mirrored_vram - 0x2000; // to vram vector
+    let name_table = vram_index / 0x400;
+    match (mirroring, name_table) {
+        (Mirroring::VERTICAL, 2) | (Mirroring::VERTICAL, 3) => vram_index - 0x800,
+        (Mirroring::HORIZONTAL, 2) => vram_index - 0x400,
+        (Mirroring::HORIZONTAL, 1) => vram_index - 0x400,
+        (Mirroring::HORIZONTAL, 3) => vram_index - 0x800,
+        _ => vram_index,
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::cart::test;
+
+    #[test]
+    fn test_vram_mirroring() {
+        // Mirroring an address in the first nametable should just drop the range
+        let addr1 = 0x3011;
+        assert_eq!(mirror_vram_address(addr1, Mirroring::VERTICAL), 0x0011);
+        assert_eq!(mirror_vram_address(addr1, Mirroring::HORIZONTAL), 0x0011);
+        assert_eq!(mirror_vram_address(addr1, Mirroring::FOUR), 0x0011);
+
+        let addr2 = 0x2410;
+        assert_eq!(mirror_vram_address(addr2, Mirroring::VERTICAL), 0x0410);
+        assert_eq!(mirror_vram_address(addr2, Mirroring::HORIZONTAL), 0x0010);
+        
+        let addr3 = 0x2810;
+        assert_eq!(mirror_vram_address(addr3, Mirroring::VERTICAL), 0x0010);
+        assert_eq!(mirror_vram_address(addr3, Mirroring::HORIZONTAL), 0x0410);
+    }
+
+    #[test]
+    fn test_ppu_data_read_increments_addr() {
+        let mut ppu = PPU::default();
+        let cart = test::test_cart();
+
+        // Should increment by 1 to 0x0001
+        ppu.control.set(PpuControl::VRAM_ADDR_INCR, false);
+        ppu.ppu_addr.hi = 0x00;
+        ppu.ppu_addr.lo = 0x00;
+
+        // Read from PPU_DATA register
+        ppu_read(&mut ppu, &cart, 0x2007);
+
+        assert_eq!(ppu.ppu_addr.get(), 0x0001);
+
+        // Should increment by 32 to 0x0020
+        ppu.control.set(PpuControl::VRAM_ADDR_INCR, true);
+        ppu.ppu_addr.hi = 0x00;
+        ppu.ppu_addr.lo = 0x00;
+
+        // Read from PPU_DATA register
+        ppu_read(&mut ppu, &cart, 0x2007);
+
+        assert_eq!(ppu.ppu_addr.get(), 0x0020);
+    }
+
+    #[test]
+    fn test_ppu_data_addr_write() {
+        let mut ppu = PPU::default();
+        let mut cart = test::test_cart();
+
+        // Write the high byte, then low byte of address
+        ppu_write(&mut ppu, &mut cart, 0x2006, 0x12);
+        ppu_write(&mut ppu, &mut cart, 0x2006, 0x34);
+
+        assert_eq!(ppu.ppu_addr.get(), 0x1234);
+    }
+
+    #[test]
+    fn test_ppu_oam_write_increments_addr() {
+        let mut ppu= PPU::default();
+        let mut cart = test::test_cart();
+
+        ppu.oam_addr = 0x0000;
+        ppu_write(&mut ppu, &mut cart, 0x2004, 0x00);
+        assert_eq!(ppu.oam_addr, 0x0001);
     }
 }

@@ -63,8 +63,8 @@ pub fn from_binary(data: &Vec<u8>) -> Result<Cartridge, String> {
 
 #[enum_dispatch]
 pub trait CartMem {
-    fn mem_read(&self, addr: u16) -> u8;
-    fn mem_write(&mut self, addr: u16, value: u8);
+    fn pgr_read(&self, addr: u16) -> u8;
+    fn pgr_write(&mut self, addr: u16, value: u8);
     fn chr_read(&self, addr: u16) -> u8;
     fn chr_write(&mut self, addr: u16);
     fn get_mirroring(&self) -> Mirroring;
@@ -91,7 +91,7 @@ impl NROM {
 }
 
 impl CartMem for NROM {
-    fn mem_read(&self, addr: u16) -> u8 {
+    fn pgr_read(&self, addr: u16) -> u8 {
         // The PRG rom is located from 0x8000 to 0xFFFF,
         // but potentially takes less space.
         // In that case, the PRG rom is mirrored over.
@@ -102,7 +102,7 @@ impl CartMem for NROM {
         self.prg_rom[shifted_addr as usize]
     }
 
-    fn mem_write(&mut self, _: u16, _: u8) {
+    fn pgr_write(&mut self, _: u16, _: u8) {
         panic!("Attempted to write to PRG ROM on NROM")
     }
 
@@ -127,7 +127,7 @@ impl UxROM {
 }
 
 impl CartMem for UxROM {
-    fn mem_read(&self, addr: u16) -> u8 {
+    fn pgr_read(&self, addr: u16) -> u8 {
         // Ignore the MSB as this will always be 1
         let shifted: usize = (addr & 0b01111111_11111111) as usize;
         match addr {
@@ -137,7 +137,7 @@ impl CartMem for UxROM {
         }
     }
 
-    fn mem_write(&mut self, _: u16, value: u8) {
+    fn pgr_write(&mut self, _: u16, value: u8) {
         // Writing to memory selects the active prg rom bank
         self.active_prg = value as usize;
     }
