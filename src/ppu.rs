@@ -135,6 +135,10 @@ pub struct PPU {
     scroll: ScrollReg,
     ppu_addr: AddrReg,
     oam_addr: u8,
+
+    vblank: bool,
+    s0_hit: bool,
+    sprite_overflow: bool,
 }
 
 impl Default for PPU {
@@ -149,6 +153,10 @@ impl Default for PPU {
             scroll: ScrollReg::new(),
             ppu_addr: AddrReg::new(),
             oam_addr: 0,
+
+            vblank: false,
+            s0_hit: false,
+            sprite_overflow: false,
         }
     }
 }
@@ -162,6 +170,24 @@ impl PPU {
         }
     }
 
+    pub fn read_status(&mut self) -> u8 {
+        let mut res = 0b0000_0000;
+        if self.sprite_overflow { res |= 0b0010_0000 }
+        if self.s0_hit { res |= 0b0100_0000 }
+        if self.vblank { res |= 0b1000_0000 }
+
+        // Bits 0-5 should technically contain residual data from prior
+        // writes, but the data itself decays extremely rapidly and 
+        // no games depend on this behavior.
+
+        // Reading this register clears the VBLANK flag and resets both latches
+        self.vblank = false;
+        self.ppu_addr.reset_latch();
+        self.scroll.reset_latch();
+
+        res
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -171,7 +197,7 @@ pub fn ppu_read(ppu: &mut PPU, cart: &Cartridge, addr: u16) -> u8 {
     // PPU Reading/Writing requires the Cartridge since CHR ROM is memory-mapped within the PPU
     match addr {
         // Status
-        0x2002 => todo!(),
+        0x2002 => ppu.read_status(),
         // OAM Data
         0x2004 => ppu.oam[ppu.oam_addr as usize],
         // PPU Data
@@ -305,11 +331,27 @@ mod test {
 
     #[test]
     fn test_ppu_oam_write_increments_addr() {
-        let mut ppu= PPU::default();
+        let mut ppu = PPU::default();
         let mut cart = test::test_cart();
 
         ppu.oam_addr = 0x0000;
         ppu_write(&mut ppu, &mut cart, 0x2004, 0x00);
         assert_eq!(ppu.oam_addr, 0x0001);
+    }
+
+    #[test]
+    fn test_ppu_read_status_resets_latches() {
+        let mut ppu = PPU::default();
+
+        // Manually fire each latch and set VBLANK
+        ppu.ppu_addr.set_hi = false;
+        ppu.scroll.set_x = false;
+        ppu.vblank = true;
+
+        let status = ppu.read_status();
+        assert!((status & 0b1000_0000) != 0);
+        assert_eq!(ppu.ppu_addr.set_hi, true);
+        assert_eq!(ppu.scroll.set_x, true);
+        assert_eq!(ppu.vblank, false); 
     }
 }
