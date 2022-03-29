@@ -2,7 +2,6 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufRead};
 use std::path::PathBuf;
 
-use nes7::bus::Bus;
 use nes7::cpu::*;
 use nes7::opcodes::{Opcode, Op, OpWithMode, OPCODE_MAP};
 use nes7::cart::{self, Cartridge};
