@@ -19,25 +19,6 @@ pub enum AddressingMode {
     Accumulator,
 }
 
-pub trait Mem {
-    fn mem_read(&mut self, addr: u16) -> u8;
-    fn mem_write(&mut self, addr: u16, value: u8);
-
-    fn mem_read_u16(&mut self, addr: u16) -> u16 {
-        // The NES packs 16-bit values in little endian
-        let lo = self.mem_read(addr) as u16;
-        let hi = self.mem_read(addr + 1) as u16;
-        (hi << 8) | (lo)
-    }
-
-    fn mem_write_u16(&mut self, addr: u16, value: u16) {
-        let lo = (value & 0xff) as u8;
-        let hi = (value >> 8) as u8;
-        self.mem_write(addr, lo);
-        self.mem_write(addr + 1, hi);
-    }
-}
-
 bitflags! {
     // Status register is a series of flags:
     // N V - B D I Z C
