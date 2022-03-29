@@ -252,7 +252,7 @@ pub fn mem_read(cpu: &CPU, ppu: &mut PPU, cartridge: &Cartridge, addr: u16) -> u
     match addr {
         RAM_START..=RAM_END => cpu.ram[(addr & 0x7FF) as usize],
         PPU_REGISTER_START..=PPU_REGISTER_END => ppu_read(ppu, cartridge, addr),
-        PRG_ROM_START..=PRG_ROM_END => cartridge.mem_read(addr),
+        PRG_ROM_START..=PRG_ROM_END => cartridge.pgr_read(addr),
         _ => panic!("Attempted to read from unknown address")
     }
 }
@@ -261,7 +261,7 @@ pub fn mem_write(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, addr: 
     match addr {
         RAM_START..=RAM_END => cpu.ram[(addr & 0x7FF) as usize] = value,
         PPU_REGISTER_START..=PPU_REGISTER_END => ppu_write(ppu, cartridge, addr, value),
-        PRG_ROM_START..=PRG_ROM_END => cartridge.mem_write(addr, value),
+        PRG_ROM_START..=PRG_ROM_END => cartridge.pgr_write(addr, value),
         PPU_OAM => todo!("OAM to PPU"),
         _ => panic!("Attempted to write to unknown address")
     }
