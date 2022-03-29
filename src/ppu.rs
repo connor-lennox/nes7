@@ -94,6 +94,7 @@ impl AddrReg {
             true => self.hi = data,
             false => self.lo = data,
         };
+        self.set_hi = !self.set_hi;
         // Shift hi byte to mirror address
         self.mirror();
     }
@@ -228,6 +229,7 @@ fn write_internal(ppu: &mut PPU, cart: &mut Cartridge, addr: u16, value: u8) {
 }
 
 fn mirror_vram_address(addr: u16, mirroring: Mirroring) -> u16 {
+    // Applies VRAM mirroring and converts address into an index for VRAM array
     let mirrored_vram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
     let vram_index = mirrored_vram - 0x2000; // to vram vector
     let name_table = vram_index / 0x400;
@@ -237,5 +239,77 @@ fn mirror_vram_address(addr: u16, mirroring: Mirroring) -> u16 {
         (Mirroring::HORIZONTAL, 1) => vram_index - 0x400,
         (Mirroring::HORIZONTAL, 3) => vram_index - 0x800,
         _ => vram_index,
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::cart::test;
+
+    #[test]
+    fn test_vram_mirroring() {
+        // Mirroring an address in the first nametable should just drop the range
+        let addr1 = 0x3011;
+        assert_eq!(mirror_vram_address(addr1, Mirroring::VERTICAL), 0x0011);
+        assert_eq!(mirror_vram_address(addr1, Mirroring::HORIZONTAL), 0x0011);
+        assert_eq!(mirror_vram_address(addr1, Mirroring::FOUR), 0x0011);
+
+        let addr2 = 0x2410;
+        assert_eq!(mirror_vram_address(addr2, Mirroring::VERTICAL), 0x0410);
+        assert_eq!(mirror_vram_address(addr2, Mirroring::HORIZONTAL), 0x0010);
+        
+        let addr3 = 0x2810;
+        assert_eq!(mirror_vram_address(addr3, Mirroring::VERTICAL), 0x0010);
+        assert_eq!(mirror_vram_address(addr3, Mirroring::HORIZONTAL), 0x0410);
+    }
+
+    #[test]
+    fn test_ppu_data_read_increments_addr() {
+        let mut ppu = PPU::default();
+        let cart = test::test_cart();
+
+        // Should increment by 1 to 0x0001
+        ppu.control.set(PpuControl::VRAM_ADDR_INCR, false);
+        ppu.ppu_addr.hi = 0x00;
+        ppu.ppu_addr.lo = 0x00;
+
+        // Read from PPU_DATA register
+        ppu_read(&mut ppu, &cart, 0x2007);
+
+        assert_eq!(ppu.ppu_addr.get(), 0x0001);
+
+        // Should increment by 32 to 0x0020
+        ppu.control.set(PpuControl::VRAM_ADDR_INCR, true);
+        ppu.ppu_addr.hi = 0x00;
+        ppu.ppu_addr.lo = 0x00;
+
+        // Read from PPU_DATA register
+        ppu_read(&mut ppu, &cart, 0x2007);
+
+        assert_eq!(ppu.ppu_addr.get(), 0x0020);
+    }
+
+    #[test]
+    fn test_ppu_data_addr_write() {
+        let mut ppu = PPU::default();
+        let mut cart = test::test_cart();
+
+        // Write the high byte, then low byte of address
+        ppu_write(&mut ppu, &mut cart, 0x2006, 0x12);
+        ppu_write(&mut ppu, &mut cart, 0x2006, 0x34);
+
+        assert_eq!(ppu.ppu_addr.get(), 0x1234);
+    }
+
+    #[test]
+    fn test_ppu_oam_write_increments_addr() {
+        let mut ppu= PPU::default();
+        let mut cart = test::test_cart();
+
+        ppu.oam_addr = 0x0000;
+        ppu_write(&mut ppu, &mut cart, 0x2004, 0x00);
+        assert_eq!(ppu.oam_addr, 0x0001);
     }
 }
