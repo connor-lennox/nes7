@@ -1,6 +1,6 @@
 use crate::cart::{Cartridge, CartMem};
 use crate::opcodes::{Op, OpWithMode, Opcode, OPCODE_MAP};
-use crate::ppu::PPU;
+use crate::ppu::{PPU, ppu_read, ppu_write};
 use bitflags::bitflags;
 
 #[derive(Debug, Clone, Copy)]
@@ -270,7 +270,7 @@ const PRG_ROM_END: u16 = 0xFFFF;
 pub fn mem_read(cpu: &CPU, ppu: &mut PPU, cartridge: &Cartridge, addr: u16) -> u8 {
     match addr {
         RAM_START..=RAM_END => cpu.ram[(addr & 0x7FF) as usize],
-        PPU_REGISTER_START..=PPU_REGISTER_END => ppu.mem_read(addr, cartridge),
+        PPU_REGISTER_START..=PPU_REGISTER_END => ppu_read(ppu, cartridge, addr),
         PRG_ROM_START..=PRG_ROM_END => cartridge.mem_read(addr),
         _ => panic!("Attempted to read from unknown address")
     }
@@ -279,7 +279,7 @@ pub fn mem_read(cpu: &CPU, ppu: &mut PPU, cartridge: &Cartridge, addr: u16) -> u
 pub fn mem_write(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, addr: u16, value: u8) {
     match addr {
         RAM_START..=RAM_END => cpu.ram[(addr & 0x7FF) as usize] = value,
-        PPU_REGISTER_START..=PPU_REGISTER_END => ppu.mem_write(addr, value, cartridge),
+        PPU_REGISTER_START..=PPU_REGISTER_END => ppu_write(ppu, cartridge, addr, value),
         PRG_ROM_START..=PRG_ROM_END => cartridge.mem_write(addr, value),
         PPU_OAM => todo!("OAM to PPU"),
         _ => panic!("Attempted to write to unknown address")

@@ -154,80 +154,6 @@ impl Default for PPU {
 
 
 impl PPU {
-    pub fn mem_read(&mut self, addr: u16, cart: &Cartridge) -> u8 {
-        // PPU Reading/Writing requires the Cartridge since CHR ROM is memory-mapped within the PPU
-        match addr {
-            // Status
-            0x2002 => todo!(),
-            // OAM Data
-            0x2004 => self.oam[self.oam_addr as usize],
-            // PPU Data
-            0x2007 => {
-                let res = self.read_internal(addr, cart);
-                self.ppu_addr.increment(self.control.vram_addr_increment());
-                res
-            },
-            _ => panic!("invalid read of {:04X} on PPU", addr),
-        }
-    }
-
-    pub fn mem_write(&mut self, addr: u16, value: u8, cart: &mut Cartridge) {
-        match addr {
-            // PPU Control
-            0x2000 => self.control.update(value),
-            // Mask
-            0x2001 => self.mask.update(value),
-            // OAM Addr
-            0x2003 => self.oam_addr = value,
-            // OAM Data
-            0x2004 => {
-                self.oam[self.oam_addr as usize] = value;
-                self.oam_addr += 1;
-            }
-            // Scroll
-            0x2005 => self.scroll.update(value),
-            // PPU Address
-            0x2006 => self.ppu_addr.update(value),
-            // PPU Data
-            0x2007 => {
-                self.write_internal(self.ppu_addr.get(), value, cart);
-                self.ppu_addr.increment(self.control.vram_addr_increment());
-            },
-            _ => panic!("invalid write to {:04X} on PPU", addr),
-        }
-    }
-
-    fn mirror_vram_addr(&self, addr: u16, cart: &Cartridge) -> u16 {
-        let mirrored_vram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
-        let vram_index = mirrored_vram - 0x2000; // to vram vector
-        let name_table = vram_index / 0x400;
-        match (cart.get_mirroring(), name_table) {
-            (Mirroring::VERTICAL, 2) | (Mirroring::VERTICAL, 3) => vram_index - 0x800,
-            (Mirroring::HORIZONTAL, 2) => vram_index - 0x400,
-            (Mirroring::HORIZONTAL, 1) => vram_index - 0x400,
-            (Mirroring::HORIZONTAL, 3) => vram_index - 0x800,
-            _ => vram_index,
-        }
-    }
-
-    fn read_internal(&self, addr: u16, cart: &Cartridge) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => cart.chr_read(addr),
-            0x2000..=0x3EFF => self.vram[self.mirror_vram_addr(addr, cart) as usize],
-            0x3F00..=0x3FFF => self.palette_table[(addr & 0b0001_1111) as usize],
-            _ => panic!("Invalid read at PPU address {}", addr),
-        }
-    }
-
-    fn write_internal(&mut self, addr: u16, value: u8, cart: &mut Cartridge) {
-        match addr {
-            0x0000..=0x1FFF => cart.chr_write(addr),
-            0x2000..=0x3EFF => self.vram[self.mirror_vram_addr(addr, cart) as usize] = value,
-            0x3F00..=0x3FFF => self.palette_table[(addr & 0b0001_1111) as usize] = value,
-            _ => panic!("Invalid write at PPU address {}", addr),
-        }
-    }
-
     pub fn oam_dma(&mut self, data: &[u8; 256]) {
         for x in data.iter() {
             self.oam[self.oam_addr as usize] = *x;
@@ -238,8 +164,78 @@ impl PPU {
     pub fn new() -> Self {
         Self::default()
     }
+}
 
-    pub fn tick(&mut self, cycles: u8, cart: &Cartridge) {
+pub fn ppu_read(ppu: &mut PPU, cart: &Cartridge, addr: u16) -> u8 {
+    // PPU Reading/Writing requires the Cartridge since CHR ROM is memory-mapped within the PPU
+    match addr {
+        // Status
+        0x2002 => todo!(),
+        // OAM Data
+        0x2004 => ppu.oam[ppu.oam_addr as usize],
+        // PPU Data
+        0x2007 => {
+            let res = read_internal(ppu, cart, addr);
+            ppu.ppu_addr.increment(ppu.control.vram_addr_increment());
+            res
+        },
+        _ => panic!("invalid read of {:04X} on PPU", addr),
+    }
+}
 
+pub fn ppu_write(ppu: &mut PPU, cart: &mut Cartridge, addr: u16, value: u8) {
+    match addr {
+        // PPU Control
+        0x2000 => ppu.control.update(value),
+        // Mask
+        0x2001 => ppu.mask.update(value),
+        // OAM Addr
+        0x2003 => ppu.oam_addr = value,
+        // OAM Data
+        0x2004 => {
+            ppu.oam[ppu.oam_addr as usize] = value;
+            ppu.oam_addr += 1;
+        }
+        // Scroll
+        0x2005 => ppu.scroll.update(value),
+        // PPU Address
+        0x2006 => ppu.ppu_addr.update(value),
+        // PPU Data
+        0x2007 => {
+            write_internal(ppu, cart, ppu.ppu_addr.get(), value);
+            ppu.ppu_addr.increment(ppu.control.vram_addr_increment());
+        },
+        _ => panic!("invalid write to {:04X} on PPU", addr),
+    }
+}
+
+fn read_internal(ppu: &mut PPU, cart: &Cartridge, addr: u16) -> u8 {
+    match addr {
+        0x0000..=0x1FFF => cart.chr_read(addr),
+        0x2000..=0x3EFF => ppu.vram[mirror_vram_address(addr, cart.get_mirroring()) as usize],
+        0x3F00..=0x3FFF => ppu.palette_table[(addr & 0b0001_1111) as usize],
+        _ => panic!("Invalid read at PPU address {}", addr),
+    }
+}
+
+fn write_internal(ppu: &mut PPU, cart: &mut Cartridge, addr: u16, value: u8) {
+    match addr {
+        0x0000..=0x1FFF => cart.chr_write(addr),
+        0x2000..=0x3EFF => ppu.vram[mirror_vram_address(addr, cart.get_mirroring()) as usize] = value,
+        0x3F00..=0x3FFF => ppu.palette_table[(addr & 0b0001_1111) as usize] = value,
+        _ => panic!("Invalid write at PPU address {}", addr),
+    }
+}
+
+fn mirror_vram_address(addr: u16, mirroring: Mirroring) -> u16 {
+    let mirrored_vram = addr & 0b10111111111111; // mirror down 0x3000-0x3eff to 0x2000 - 0x2eff
+    let vram_index = mirrored_vram - 0x2000; // to vram vector
+    let name_table = vram_index / 0x400;
+    match (mirroring, name_table) {
+        (Mirroring::VERTICAL, 2) | (Mirroring::VERTICAL, 3) => vram_index - 0x800,
+        (Mirroring::HORIZONTAL, 2) => vram_index - 0x400,
+        (Mirroring::HORIZONTAL, 1) => vram_index - 0x400,
+        (Mirroring::HORIZONTAL, 3) => vram_index - 0x800,
+        _ => vram_index,
     }
 }
