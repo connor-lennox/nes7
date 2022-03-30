@@ -590,6 +590,11 @@ pub fn step_cpu(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge) -> u8 {
 }
 
 
+pub fn reset_cpu_from_cart(cpu: &mut CPU, cartridge: &Cartridge) {
+    let reset_vector = (cartridge.pgr_read(0xFFFD) as u16) << 8 | (cartridge.pgr_read(0xFFFC) as u16); 
+    reset_cpu(cpu, reset_vector);
+}
+
 pub fn reset_cpu(cpu: &mut CPU, pc: u16) {
     cpu.register_a = 0;
     cpu.register_x = 0;

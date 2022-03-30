@@ -328,7 +328,7 @@ fn get_palette(ppu: &PPU, palette: u8) -> &[u8] {
     // The background palettes (0-3) are stored in 0x3F01 - 0x3F0F,
     // and sprite palettes (4-7) are in 0x3F11 - 0x3F1F.
     // The palette table itself starts at address 0x3000.
-    &ppu.palette_table[(3 * palette as usize) + 1..(3 * palette as usize) + 4]
+    &ppu.palette_table[(3 * palette as usize) + 1..=(3 * palette as usize) + 4]
 }
 
 fn merge_bytes(lo: u8, hi: u8, flip_x: bool) -> impl Iterator<Item = u8> {
