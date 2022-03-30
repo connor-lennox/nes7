@@ -171,6 +171,9 @@ pub struct PPU {
     vblank: bool,
     s0_hit: bool,
     sprite_overflow: bool,
+
+    current_scanline: u16,
+    scanline_cycle: u16,
 }
 
 impl Default for PPU {
@@ -189,6 +192,9 @@ impl Default for PPU {
             vblank: false,
             s0_hit: false,
             sprite_overflow: false,
+
+            current_scanline: 0,
+            scanline_cycle: 0,
         }
     }
 }
@@ -322,7 +328,7 @@ fn get_palette(ppu: &PPU, palette: u8) -> &[u8] {
     // The background palettes (0-3) are stored in 0x3F01 - 0x3F0F,
     // and sprite palettes (4-7) are in 0x3F11 - 0x3F1F.
     // The palette table itself starts at address 0x3000.
-    &ppu.palette_table[(3 * palette as usize) + 1..(3 * palette as usize) + 3]
+    &ppu.palette_table[(3 * palette as usize) + 1..(3 * palette as usize) + 4]
 }
 
 fn merge_bytes(lo: u8, hi: u8, flip_x: bool) -> impl Iterator<Item = u8> {
@@ -439,8 +445,43 @@ fn get_tall_sprite_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> ([u8;
     (pixels, priority)
 }
 
+fn get_background_palette_idx(ppu: &PPU, tile_x: u8, tile_y: u8) -> u8 {
+    let attr_tbl_idx = (tile_x / 4) * 8 + (tile_y / 4);
+    let attr_byte = ppu.vram[0x3c0 + attr_tbl_idx as usize];
+
+    match (tile_x % 4 / 2, tile_y % 4 / 2) {
+        (0,0) => attr_byte & 0b11,
+        (1,0) => (attr_byte >> 2) & 0b11,
+        (0,1) => (attr_byte >> 4) & 0b11,
+        (1,1) => (attr_byte >> 6) & 0b11,
+        (_,_) => panic!("Invalid background palette ID found in attribute table")
+    }
+}
+
 fn get_background_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> [u8; 256] {
-    todo!("fetch background data")
+    let bank_addr = 0x2000;
+    let mut result = [0; 256];
+
+    let row_start = (scanline as usize / 8) * 32;
+    let y_offset = (scanline % 8) as u16;
+
+    let tile_y = scanline / 8;
+
+    for tile_x in 0u8..32 {
+        let nametable_entry = ppu.vram[row_start + tile_x as usize] as u16;
+        let lo = read_internal(ppu, cartridge, bank_addr + nametable_entry + y_offset);
+        let hi = read_internal(ppu, cartridge, bank_addr + nametable_entry + y_offset + 8);
+
+        let bg_palette = get_palette(ppu, get_background_palette_idx(ppu, tile_x, tile_y));
+        let palette_indices = merge_bytes(lo, hi, false);
+
+        let pixels = palette_indices.map(|i| bg_palette[i as usize]);
+
+        (0..8).zip(pixels)
+            .for_each(|(i, p)| result[(tile_x as usize * 8) + i] = p)
+    }
+
+    result
 }
 
 fn render_scanline(ppu: &PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, scanline: u8) {
@@ -465,8 +506,28 @@ fn render_scanline(ppu: &PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, sc
 }
 
 
-pub fn step_ppu(ppu: &mut PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, cycles: u8) {
+pub fn step_ppu(ppu: &mut PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, cycles: u16) {
+    ppu.scanline_cycle += cycles;
+    // The PPU takes 340 of its cycles (not CPU cycles!) to finish rendering a line
+    if ppu.scanline_cycle > 340 {
+        // The first 240 lines are visible, the rest are VBLANK lines
+        if ppu.current_scanline <= 239 {
+            render_scanline(ppu, cartridge, frame, ppu.current_scanline as u8);
+        }
+        ppu.scanline_cycle -= 340;
+        ppu.current_scanline += 1;
 
+        // This is the start of the VBLANK period
+        if(ppu.current_scanline) == 241 {
+            ppu.vblank = true;
+            // TODO: Send VBLANK NMI
+        }
+
+        // After line 260 wrap back around to 0
+        if ppu.current_scanline == 261 {
+            ppu.current_scanline = 0;
+        }
+    }
 }
 
 
