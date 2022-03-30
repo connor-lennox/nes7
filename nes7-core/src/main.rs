@@ -1,5 +1,5 @@
 use std::{env, fs};
-use nes7::{cpu::{CPU, step_cpu, reset_cpu_from_cart}, ppu::{PPU, FrameBuffer, step_ppu}, cart};
+use nes7_core::{cpu::{CPU, step_cpu, reset_cpu_from_cart}, ppu::{PPU, FrameBuffer, step_ppu}, cart};
 
 fn main() {
     let mut cpu = CPU::default();

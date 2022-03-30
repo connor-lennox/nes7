@@ -2,10 +2,10 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufRead};
 use std::path::PathBuf;
 
-use nes7::cpu::*;
-use nes7::opcodes::{Opcode, Op, OpWithMode, OPCODE_MAP};
-use nes7::cart::{self, Cartridge};
-use nes7::ppu::PPU;
+use nes7_core::cpu::*;
+use nes7_core::opcodes::{Opcode, Op, OpWithMode, OPCODE_MAP};
+use nes7_core::cart::{self, Cartridge};
+use nes7_core::ppu::PPU;
 
 
 fn get_opcode_no_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, pc: u16, op: &Op, _: &u8, len: &u8) -> String {
