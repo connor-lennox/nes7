@@ -525,6 +525,7 @@ pub fn step_ppu(ppu: &mut PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, c
 
         // After line 260 wrap back around to 0
         if ppu.current_scanline == 261 {
+            ppu.vblank = false;
             ppu.current_scanline = 0;
         }
     }
