@@ -125,6 +125,20 @@ impl AddrReg {
     }
 }
 
+#[derive(Clone, Copy)]
+struct OAMEntry {
+    pub y: u8,
+    pub tile: u8,
+    pub attributes: u8,
+    pub x: u8,
+}
+
+impl OAMEntry {
+    pub fn new(y: u8, tile: u8, attributes: u8, x: u8) -> Self {
+        OAMEntry { y, tile, attributes, x }
+    }
+}
+
 pub struct PPU {
     pub vram: [u8; 2048],
     pub palette_table: [u8; 32],
@@ -186,6 +200,11 @@ impl PPU {
         self.scroll.reset_latch();
 
         res
+    }
+
+    fn get_oam_entries(&self) -> Vec<OAMEntry> {
+        // OAM Entries are packed into the OAM RAM in groups of 4 bytes: (y, tile, attributes, x)
+        self.oam.chunks(4).map(|c| OAMEntry::new(c[0], c[1], c[2], c[3])).collect()
     }
 
     pub fn new() -> Self {
@@ -266,6 +285,18 @@ fn mirror_vram_address(addr: u16, mirroring: Mirroring) -> u16 {
         (Mirroring::HORIZONTAL, 3) => vram_index - 0x800,
         _ => vram_index,
     }
+}
+
+fn sprite_evaluation(ppu: &PPU, scanline: u8) -> Vec<OAMEntry> {
+    // The position in the OAM determines the priority, so get them from start to finish
+    // Only take elements with a Y value that is at least the current scanline, and
+    // are no further away than the sprite height.
+    // Also, we can only take the first 8 valid entries.
+    let sprite_height = if ppu.control.contains(PpuControl::SPRITE_SIZE) { 8 } else { 16 };
+    ppu.get_oam_entries().into_iter()
+        .filter(|o| o.y >= scanline && (o.y - scanline) < sprite_height)
+        .take(8)
+        .collect::<Vec<OAMEntry>>()
 }
 
 
@@ -353,5 +384,26 @@ mod test {
         assert_eq!(ppu.ppu_addr.set_hi, true);
         assert_eq!(ppu.scroll.set_x, true);
         assert_eq!(ppu.vblank, false); 
+    }
+
+    #[test]
+    fn test_oam_entry_read() {
+        let mut ppu = PPU::default();
+
+        ppu.oam[0..8].copy_from_slice(&[0x32, 0x12, 0x64, 0x12, 0xFF, 0x5B, 0xA4, 0x77]);
+        let oam_entries = ppu.get_oam_entries();
+
+        let e0 = oam_entries[0];
+        let e1 = oam_entries[1];
+
+        assert_eq!(e0.y, 0x32);
+        assert_eq!(e0.tile, 0x12);
+        assert_eq!(e0.attributes, 0x64);
+        assert_eq!(e0.x, 0x12);
+
+        assert_eq!(e1.y, 0xFF);
+        assert_eq!(e1.tile, 0x5B);
+        assert_eq!(e1.attributes, 0xA4);
+        assert_eq!(e1.x, 0x77);
     }
 }
