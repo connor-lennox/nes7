@@ -2,6 +2,24 @@ use crate::cart::{Cartridge, CartMem, Mirroring};
 use bitflags::bitflags;
 
 
+pub struct FrameBuffer {
+    // All pixels are stored as palette values in a single dimension
+    // (x, y) -> y * 256 + x
+    pub pixels: [u8; 61440],
+}
+
+impl FrameBuffer {
+    pub fn new() -> Self { FrameBuffer { pixels: [0; 61440] } }
+    pub fn set_line(&mut self, line: u8, from: impl Iterator<Item = u8>) {
+        self.pixels[pixel_index(0, line as usize)..pixel_index(0, line as usize + 1)].iter_mut()
+            .zip(from)
+            .for_each(|(data, from)| *data = from);
+    }
+}
+
+fn pixel_index(x: usize, y: usize) -> usize { y * 256 + x }
+
+
 bitflags! {
     // PPU Control register is a series of flags:
     // V P H B S I N N
@@ -255,7 +273,7 @@ pub fn ppu_write(ppu: &mut PPU, cart: &mut Cartridge, addr: u16, value: u8) {
     }
 }
 
-fn read_internal(ppu: &mut PPU, cart: &Cartridge, addr: u16) -> u8 {
+fn read_internal(ppu: &PPU, cart: &Cartridge, addr: u16) -> u8 {
     match addr {
         0x0000..=0x1FFF => cart.chr_read(addr),
         0x2000..=0x3EFF => ppu.vram[mirror_vram_address(addr, cart.get_mirroring()) as usize],
@@ -297,6 +315,158 @@ fn sprite_evaluation(ppu: &PPU, scanline: u8) -> Vec<OAMEntry> {
         .filter(|o| o.y >= scanline && (o.y - scanline) < sprite_height)
         .take(8)
         .collect::<Vec<OAMEntry>>()
+}
+
+fn get_palette(ppu: &PPU, palette: u8) -> &[u8] {
+    // Retrieve the palette based on just the palette index.
+    // The background palettes (0-3) are stored in 0x3F01 - 0x3F0F,
+    // and sprite palettes (4-7) are in 0x3F11 - 0x3F1F.
+    // The palette table itself starts at address 0x3000.
+    &ppu.palette_table[(3 * palette as usize) + 1..(3 * palette as usize) + 3]
+}
+
+fn merge_bytes(lo: u8, hi: u8, flip_x: bool) -> impl Iterator<Item = u8> {
+    // If we're flipping this over the x, we need to read from bit 7 to bit 0
+    // Normally we read from bit 0 to bit 7.
+    // Return an iterator of palette indicies (0x00 - 0x03) given the low and high bytes to merge
+    let range = if flip_x { 7u8..=0 } else { 0u8..=7 };
+    range.map(move |b| (if lo & 1 << b != 0 { 0b1 } else { 0 }) | (if hi & 1 << b != 0 { 0b10 } else { 0 }))
+}
+
+fn get_sprite_data(ppu: &PPU, cartridge: &Cartridge, scanline: u8, sprite: &OAMEntry) -> Vec<u8> {
+    let table_base = if ppu.control.contains(PpuControl::SPRITE_TBL) { 0x0000 } else { 0x1000 };
+
+    let mut y_offset = (scanline - sprite.y) as u16;
+    // Flip the sprite vertically if bit 7 of the attributes is set.
+    // A y offset of 7 becomes 0, and vice versa. Also 1 <-> 6, 2 <-> 5, etc.
+    if sprite.attributes & 0b1000_0000 != 0 {
+        y_offset = 7 - y_offset;
+    }
+
+    let tile_addr = (sprite.tile as u16) << 4;
+    // Low and high sprite bytes differ by only bit 3
+    let lo = read_internal(ppu, cartridge, table_base | tile_addr | y_offset);
+    let hi = read_internal(ppu, cartridge, table_base | tile_addr | 0b1000 | y_offset);
+
+    // Merge low and high bytes of the sprite data to get palette indices
+    // The sprite may be mirrored horizontally, based on bit 6 of the sprite attributes.
+    let flip_x = sprite.attributes & 0b0100_0000 != 0;
+    let palette_indices = merge_bytes(lo, hi, flip_x);
+
+    // Retrieve the relevant palette from the PPU palette table
+    // Sprite palettes are numbered 4 - 7.
+    let palette_num = (sprite.attributes & 0b0000_0011) + 4;
+    let palette = get_palette(ppu, palette_num);
+
+    palette_indices.map(|i| palette[i as usize]).collect()
+}
+
+fn get_sprite_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> ([u8; 256], [bool; 256]) {
+    let sprite_oam = sprite_evaluation(ppu, scanline);
+
+    let mut pixels = [0; 256];
+    let mut priority = [false; 256];
+
+    // Process sprites in reverse order, because the earlier entries should overwrite.
+    for sprite in sprite_oam.iter().rev() {
+        let sprite_pixels = get_sprite_data(ppu, cartridge, scanline, sprite);
+        let sprite_priority = (sprite.attributes & 0b0010_0000) != 0;
+
+        for i in 0..7 {
+            let x = sprite.x as usize + i;
+            if x < 256 {
+                pixels[x] = sprite_pixels[i];
+                priority[x] = sprite_priority;
+            }
+        }
+    }
+
+    (pixels, priority)
+}
+
+fn get_tall_sprite_data(ppu: &PPU, cartridge: &Cartridge, scanline: u8, sprite: &OAMEntry) -> Vec<u8> {
+    // The table base of a tall sprite is determined by bit 0 of the sprite's tile number.
+    // If bit 0 is set, the table base is 0x1000. Else it's 0x0000.
+    let table_base = if sprite.tile & 0b1 != 0 { 0x1000 } else { 0x0000 };
+
+    let mut y_offset = (scanline - sprite.y) as u16;
+    // Flip the sprite vertically if bit 7 of the attributes is set.
+    // A y offset of 15 becomes 0, and vice versa. Also 1 <-> 14, 2 <-> 13, etc.
+    if sprite.attributes & 0b1000_0000 != 0 {
+        y_offset = 15 - y_offset;
+    }
+
+    // We either want the top or bottom tile for this sprite, based on the y_offset.
+    let tile_addr = ((sprite.tile & 0b1111_1110) as u16 | if y_offset >= 8 { 0b1 } else { 0 }) << 4;
+
+    // As with 8x8 sprites, the only difference here is bit 3.
+    let lo = read_internal(ppu, cartridge, table_base | tile_addr | y_offset % 8);
+    let hi = read_internal(ppu, cartridge, table_base | tile_addr | 0b1000 | y_offset % 8);
+
+    // Merge low and high bytes of the sprite data to get palette indices
+    // The sprite may be mirrored horizontally, based on bit 6 of the sprite attributes.
+    let flip_x = sprite.attributes & 0b0100_0000 != 0;
+    let palette_indices = merge_bytes(lo, hi, flip_x);
+
+    // Retrieve the relevant palette from the PPU palette table
+    // Sprite palettes are numbered 4 - 7.
+    let palette_num = (sprite.attributes & 0b0000_0011) + 4;
+    let palette = get_palette(ppu, palette_num);
+
+    palette_indices.map(|i| palette[i as usize]).collect()
+}
+
+fn get_tall_sprite_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> ([u8; 256], [bool; 256]) {
+    let sprite_oam = sprite_evaluation(ppu, scanline);
+
+    let mut pixels = [0; 256];
+    let mut priority = [false; 256];
+
+    // Process sprites in reverse order, because the earlier entries should overwrite.
+    for sprite in sprite_oam.iter().rev() {
+        let sprite_pixels = get_tall_sprite_data(ppu, cartridge, scanline, sprite);
+        let sprite_priority = (sprite.attributes & 0b0010_0000) != 0;
+
+        for i in 0..7 {
+            let x = sprite.x as usize + i;
+            if x < 256 {
+                pixels[x] = sprite_pixels[i];
+                priority[x] = sprite_priority;
+            }
+        }
+    }
+
+    (pixels, priority)
+}
+
+fn get_background_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> [u8; 256] {
+    todo!("fetch background data")
+}
+
+fn render_scanline(ppu: &PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, scanline: u8) {
+    // Get the sprite data and background priority for the line. The background priority 
+    // determines if an opaque bg pixel will overwrite an opaque sprite pixel.
+    let (sprite_data, bg_priority) = match ppu.control.contains(PpuControl::SPRITE_SIZE) {
+        true => get_tall_sprite_line(ppu, cartridge, scanline),
+        false => get_sprite_line(ppu, cartridge, scanline),
+    };
+
+    // Grab the background data
+    let background_data = get_background_line(ppu, cartridge, scanline);
+
+    // For each pixel, either it will be the sprite data or the background data (or nothing?)
+    let line_data = sprite_data.into_iter()
+        .zip(background_data.into_iter())
+        .zip(bg_priority.into_iter())
+        .map(|((s, b), p)| if p { b } else { s });
+
+    // Write the data to the FrameBuffer
+    frame.set_line(scanline, line_data)
+}
+
+
+pub fn step_ppu(ppu: &mut PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, cycles: u8) {
+
 }
 
 
