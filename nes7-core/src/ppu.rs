@@ -447,7 +447,16 @@ fn get_tall_sprite_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> ([u8;
 
 fn get_background_palette_idx(ppu: &PPU, tile_x: u8, tile_y: u8) -> u8 {
     let attr_tbl_idx = (tile_x / 4) * 8 + (tile_y / 4);
-    let attr_byte = ppu.vram[0x3c0 + attr_tbl_idx as usize];
+    // The attribute table is normally at 0x23C0, 0x27C0... but we 
+    // are addressing directly into vram, which starts at 0x2000.
+    let attribute_base = match ppu.control.bits & 0b11 {
+        0 => 0x03C0,
+        1 => 0x07C0,
+        2 => 0x0BC0,
+        3 => 0x0FC0,
+        _ => panic!("invalid attribute table")
+    };
+    let attr_byte = ppu.vram[attribute_base + attr_tbl_idx as usize];
 
     match (tile_x % 4 / 2, tile_y % 4 / 2) {
         (0,0) => attr_byte & 0b11,
@@ -459,7 +468,13 @@ fn get_background_palette_idx(ppu: &PPU, tile_x: u8, tile_y: u8) -> u8 {
 }
 
 fn get_background_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> [u8; 256] {
-    let bank_addr = 0x2000;
+    let bank_addr = match ppu.control.bits & 0b11 {
+        0 => 0x2000,
+        1 => 0x2400,
+        2 => 0x2800,
+        3 => 0x2C00,
+        _ => panic!("invalid base nametable address")
+    };
     let mut result = [0; 256];
 
     let row_start = (scanline as usize / 8) * 32;
