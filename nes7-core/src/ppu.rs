@@ -264,7 +264,7 @@ pub fn ppu_write(ppu: &mut PPU, cart: &mut Cartridge, addr: u16, value: u8) {
         // OAM Data
         0x2004 => {
             ppu.oam[ppu.oam_addr as usize] = value;
-            ppu.oam_addr += 1;
+            ppu.oam_addr = ppu.oam_addr.wrapping_add(1);
         }
         // Scroll
         0x2005 => ppu.scroll.update(value),
