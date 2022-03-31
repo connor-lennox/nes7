@@ -11,7 +11,7 @@ pub enum Opcode {
 #[derive(Debug)]
 pub enum Op { BCC, BCS, BEQ, BMI, BNE, BPL, BRK, BVC, BVS, CLC, CLD, CLI, CLV, DEX, DEY, INX, INY, JSR, NOP, PHA, PHP, PLA, PLP, RTI, RTS, SEC, SED, SEI, TAX, TAY, TSX, TXA, TXS, TYA }
 #[derive(Debug)]
-pub enum OpWithMode { ADC, AND, ASL, BIT, CMP, CPX, CPY, DEC, EOR, INC, JMP, LDA, LDX, LDY, LSR, ORA, ROL, ROR, SBC, STA, STX, STY }
+pub enum OpWithMode { ADC, AND, ASL, BIT, CMP, CPX, CPY, DEC, EOR, INC, JMP, LDA, LDX, LDY, LSR, ORA, ROL, ROR, SBC, STA, STX, STY, ALR, ANC, ANE, ARR, DCP, ISB, LAS, LAX, LXA, RLA, RRA, SAX, SBX, SHA, SHX, SHY, SLO, SRE, TAS, NOP }
 
 
 lazy_static! {
@@ -224,12 +224,134 @@ lazy_static! {
         Opcode::Op { op: Op::TYA, code: 0x98, len: 1, cycles: 2 },
     ];
 
+    pub static ref ILLEGAL_OPCODES: Vec<Opcode> = vec![
+        Opcode::OpWithMode { op: OpWithMode::ALR, code: 0x4B, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+
+        Opcode::OpWithMode { op: OpWithMode::ANC, code: 0x0B, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+        Opcode::OpWithMode { op: OpWithMode::ANC, code: 0x2B, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+
+        Opcode::OpWithMode { op: OpWithMode::ANE, code: 0x8B, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+
+        Opcode::OpWithMode { op: OpWithMode::ARR, code: 0x6B, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+
+        Opcode::OpWithMode { op: OpWithMode::DCP, code: 0xC7, len: 2, cycles: 5, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::DCP, code: 0xD7, len: 2, cycles: 6, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::DCP, code: 0xCF, len: 3, cycles: 6, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::DCP, code: 0xDF, len: 3, cycles: 7, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::DCP, code: 0xDB, len: 3, cycles: 7, mode: AddressingMode::Absolute_Y },
+        Opcode::OpWithMode { op: OpWithMode::DCP, code: 0xC3, len: 2, cycles: 8, mode: AddressingMode::Indirect_X },
+        Opcode::OpWithMode { op: OpWithMode::DCP, code: 0xD3, len: 2, cycles: 8, mode: AddressingMode::Indirect_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::ISB, code: 0xE7, len: 2, cycles: 5, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::ISB, code: 0xF7, len: 2, cycles: 6, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::ISB, code: 0xEF, len: 3, cycles: 6, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::ISB, code: 0xFF, len: 3, cycles: 7, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::ISB, code: 0xFB, len: 3, cycles: 7, mode: AddressingMode::Absolute_Y },
+        Opcode::OpWithMode { op: OpWithMode::ISB, code: 0xE3, len: 2, cycles: 8, mode: AddressingMode::Indirect_X },
+        Opcode::OpWithMode { op: OpWithMode::ISB, code: 0xF3, len: 2, cycles: 4, mode: AddressingMode::Indirect_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::LAS, code: 0xBB, len: 3, cycles: 4, mode: AddressingMode::Absolute_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::LAX, code: 0xA7, len: 2, cycles: 3, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::LAX, code: 0xB7, len: 2, cycles: 4, mode: AddressingMode::ZeroPage_Y },
+        Opcode::OpWithMode { op: OpWithMode::LAX, code: 0xAF, len: 3, cycles: 4, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::LAX, code: 0xBF, len: 3, cycles: 4, mode: AddressingMode::Absolute_Y },
+        Opcode::OpWithMode { op: OpWithMode::LAX, code: 0xA3, len: 2, cycles: 6, mode: AddressingMode::Indirect_X },
+        Opcode::OpWithMode { op: OpWithMode::LAX, code: 0xB3, len: 2, cycles: 5, mode: AddressingMode::Indirect_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::LXA, code: 0xAB, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+
+        Opcode::OpWithMode { op: OpWithMode::RLA, code: 0x27, len: 2, cycles: 5, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::RLA, code: 0x37, len: 2, cycles: 6, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::RLA, code: 0x2F, len: 3, cycles: 6, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::RLA, code: 0x3F, len: 3, cycles: 7, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::RLA, code: 0x3B, len: 3, cycles: 7, mode: AddressingMode::Absolute_Y },
+        Opcode::OpWithMode { op: OpWithMode::RLA, code: 0x23, len: 2, cycles: 8, mode: AddressingMode::Indirect_X },
+        Opcode::OpWithMode { op: OpWithMode::RLA, code: 0x33, len: 2, cycles: 8, mode: AddressingMode::Indirect_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::RRA, code: 0x67, len: 2, cycles: 5, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::RRA, code: 0x77, len: 2, cycles: 6, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::RRA, code: 0x6F, len: 3, cycles: 6, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::RRA, code: 0x7F, len: 3, cycles: 7, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::RRA, code: 0x7B, len: 3, cycles: 7, mode: AddressingMode::Absolute_Y },
+        Opcode::OpWithMode { op: OpWithMode::RRA, code: 0x63, len: 2, cycles: 8, mode: AddressingMode::Indirect_X },
+        Opcode::OpWithMode { op: OpWithMode::RRA, code: 0x73, len: 2, cycles: 8, mode: AddressingMode::Indirect_Y },
+        
+        Opcode::OpWithMode { op: OpWithMode::SAX, code: 0x87, len: 2, cycles: 3, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::SAX, code: 0x97, len: 2, cycles: 4, mode: AddressingMode::ZeroPage_Y },
+        Opcode::OpWithMode { op: OpWithMode::SAX, code: 0x8F, len: 3, cycles: 4, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::SAX, code: 0x83, len: 2, cycles: 6, mode: AddressingMode::Indirect_X },
+
+        Opcode::OpWithMode { op: OpWithMode::SBX, code: 0xCB, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+
+        Opcode::OpWithMode { op: OpWithMode::SHA, code: 0x9F, len: 3, cycles: 5, mode: AddressingMode::Absolute_Y },
+        Opcode::OpWithMode { op: OpWithMode::SHA, code: 0x93, len: 2, cycles: 6, mode: AddressingMode::Indirect_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::SHX, code: 0x9E, len: 3, cycles: 5, mode: AddressingMode::Absolute_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::SHY, code: 0x9C, len: 3, cycles: 5, mode: AddressingMode::Absolute_X },
+
+        Opcode::OpWithMode { op: OpWithMode::SLO, code: 0x07, len: 2, cycles: 5, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::SLO, code: 0x17, len: 2, cycles: 6, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::SLO, code: 0x0F, len: 3, cycles: 6, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::SLO, code: 0x1F, len: 3, cycles: 7, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::SLO, code: 0x1B, len: 3, cycles: 7, mode: AddressingMode::Absolute_Y },
+        Opcode::OpWithMode { op: OpWithMode::SLO, code: 0x03, len: 2, cycles: 8, mode: AddressingMode::Indirect_X },
+        Opcode::OpWithMode { op: OpWithMode::SLO, code: 0x13, len: 2, cycles: 8, mode: AddressingMode::Indirect_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::SRE, code: 0x47, len: 2, cycles: 5, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::SRE, code: 0x57, len: 2, cycles: 6, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::SRE, code: 0x4F, len: 3, cycles: 6, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::SRE, code: 0x5F, len: 3, cycles: 7, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::SRE, code: 0x5B, len: 3, cycles: 7, mode: AddressingMode::Absolute_Y },
+        Opcode::OpWithMode { op: OpWithMode::SRE, code: 0x43, len: 2, cycles: 8, mode: AddressingMode::Indirect_X },
+        Opcode::OpWithMode { op: OpWithMode::SRE, code: 0x53, len: 2, cycles: 8, mode: AddressingMode::Indirect_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::TAS, code: 0x9B, len: 3, cycles: 5, mode: AddressingMode::Absolute_Y },
+
+        Opcode::OpWithMode { op: OpWithMode::SBC, code: 0xEB, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+
+        Opcode::Op { op: Op::NOP, code: 0x1A, len: 1, cycles: 2 },
+        Opcode::Op { op: Op::NOP, code: 0x3A, len: 1, cycles: 2 },
+        Opcode::Op { op: Op::NOP, code: 0x5A, len: 1, cycles: 2 },
+        Opcode::Op { op: Op::NOP, code: 0x7A, len: 1, cycles: 2 },
+        Opcode::Op { op: Op::NOP, code: 0xDA, len: 1, cycles: 2 },
+        Opcode::Op { op: Op::NOP, code: 0xFA, len: 1, cycles: 2 },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x80, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x82, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x89, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0xC2, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0xE2, len: 2, cycles: 2, mode: AddressingMode::Immediate },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x04, len: 2, cycles: 3, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x44, len: 2, cycles: 3, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x64, len: 2, cycles: 3, mode: AddressingMode::ZeroPage },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x14, len: 2, cycles: 4, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x34, len: 2, cycles: 4, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x54, len: 2, cycles: 4, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x74, len: 2, cycles: 4, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0xD4, len: 2, cycles: 4, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0xF4, len: 2, cycles: 4, mode: AddressingMode::ZeroPage_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x0C, len: 3, cycles: 4, mode: AddressingMode::Absolute },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x1C, len: 3, cycles: 4, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x3C, len: 3, cycles: 4, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x5C, len: 3, cycles: 4, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0x7C, len: 3, cycles: 4, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0xDC, len: 3, cycles: 4, mode: AddressingMode::Absolute_X },
+        Opcode::OpWithMode { op: OpWithMode::NOP, code: 0xFC, len: 3, cycles: 4, mode: AddressingMode::Absolute_X },
+    ];
+
     pub static ref OPCODE_MAP: HashMap<u8, &'static Opcode> = {
         let mut map = HashMap::new();
         for opcode in &*OPCODES {
             match opcode {
                  Opcode::Op { op: _,  code, len: _, cycles: _ } => map.insert(*code, opcode),
                  Opcode::OpWithMode { op: _, code, len: _, cycles: _, mode: _ } => map.insert(*code, opcode),
+            };
+        }
+        for opcode in &*ILLEGAL_OPCODES {
+            match opcode {
+                Opcode::Op { op: _,  code, len: _, cycles: _ } => map.insert(*code, opcode),
+                Opcode::OpWithMode { op: _, code, len: _, cycles: _, mode: _ } => map.insert(*code, opcode),
             };
         }
         map

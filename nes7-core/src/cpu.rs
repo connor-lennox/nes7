@@ -322,9 +322,8 @@ pub fn get_operand_addr(cpu: &CPU, ppu: &mut PPU, cartridge: &Cartridge, mode: &
     }
 }
 
-fn get_operand_addr_and_step(cpu: &mut CPU, ppu: &mut PPU, cartridge: &Cartridge, mode: &AddressingMode, from: u16) -> u16 {
-    let res = get_operand_addr(cpu, ppu, cartridge, mode, from);
-    cpu.program_counter += match mode {
+fn addr_mode_step(mode: &AddressingMode) -> u16 {
+    match mode {
         AddressingMode::Immediate => 1,
         AddressingMode::ZeroPage => 1,
         AddressingMode::ZeroPage_X => 1,
@@ -336,7 +335,12 @@ fn get_operand_addr_and_step(cpu: &mut CPU, ppu: &mut PPU, cartridge: &Cartridge
         AddressingMode::Indirect_X => 1,
         AddressingMode::Indirect_Y => 1,
         AddressingMode::Accumulator => panic!("Cannot get address of accumulator"),
-    };
+    }
+}
+
+fn get_operand_addr_and_step(cpu: &mut CPU, ppu: &mut PPU, cartridge: &Cartridge, mode: &AddressingMode, from: u16) -> u16 {
+    let res = get_operand_addr(cpu, ppu, cartridge, mode, from);
+    cpu.program_counter += addr_mode_step(mode);
     res
 }
 
@@ -566,6 +570,87 @@ pub fn interpret_op_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cart
         OpWithMode::STY => {
             let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
             mem_write(cpu, ppu, cartridge, addr, cpu.register_y);
+        },
+
+        // Starting from here, these are the illegal opcodes:
+        OpWithMode::ALR => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.and(value);
+            cpu.lsr_acc();
+        },
+        OpWithMode::ANC => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.and(value);
+            cpu.status.set(CpuFlags::CARRY, cpu.status.contains(CpuFlags::NEGATIVE));
+        },
+        OpWithMode::ANE => panic!("Unstable opcode ANE executed"),
+        OpWithMode::ARR => todo!("ARR"),
+        OpWithMode::DCP => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            dec(cpu, ppu, cartridge, addr);
+            cmp(cpu, ppu, cartridge, cpu.register_a, addr);
+        },
+        OpWithMode::ISB => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            inc(cpu, ppu, cartridge, addr);
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            // SBC is actually ADC but with 2's complement of the value:
+            cpu.adc(((value as i8).wrapping_neg().wrapping_sub(1)) as u8);
+        },
+        OpWithMode::LAS => todo!("LAS"),
+        OpWithMode::LAX => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.lda(value);
+            cpu.register_x = value;
+        },
+        OpWithMode::LXA => todo!("LXA"),
+        OpWithMode::RLA => {
+            rol(cpu, ppu, cartridge, mode);
+            // Performing ROL already stepped the program counter
+            let addr = get_operand_addr(cpu, ppu, cartridge, mode, cpu.program_counter-addr_mode_step(mode));
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.register_a = cpu.register_a & value;
+            cpu.update_zero_negative_flags(cpu.register_a);
+        },
+        OpWithMode::RRA => {
+            ror(cpu, ppu, cartridge, mode);
+            // Performing ROR already stepped the program counter
+            let addr = get_operand_addr(cpu, ppu, cartridge, mode, cpu.program_counter-addr_mode_step(mode));
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.adc(value)
+        },
+        OpWithMode::SAX => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let value = cpu.register_a & cpu.register_x;
+            mem_write(cpu, ppu, cartridge, addr, value);
+        },
+        OpWithMode::SBX => todo!("SBX"),
+        OpWithMode::SHA => todo!("SHA"),
+        OpWithMode::SHX => todo!("SHX"),
+        OpWithMode::SHY => todo!("SHY"),
+        OpWithMode::SLO => {
+            asl(cpu, ppu, cartridge, mode);
+            // Performing the ASL already stepped the program counter
+            let addr = get_operand_addr(cpu, ppu, cartridge, mode, cpu.program_counter-addr_mode_step(mode));
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.register_a = cpu.register_a | value;
+            cpu.update_zero_negative_flags(cpu.register_a);
+        },
+        OpWithMode::SRE => {
+            lsr(cpu, ppu, cartridge, mode);
+            // LSR has already stepped PC
+            let addr = get_operand_addr(cpu, ppu, cartridge, mode, cpu.program_counter-addr_mode_step(mode));
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.register_a = cpu.register_a ^ value;
+            cpu.update_zero_negative_flags(cpu.register_a);
+        },
+        OpWithMode::TAS => todo!("TAS"),
+        OpWithMode::NOP => {
+            // Just grabbing an address for side effects
+            get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
         },
     }
 }

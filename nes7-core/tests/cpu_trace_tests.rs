@@ -166,10 +166,11 @@ fn run_trace_test() {
     cpu.status = CpuFlags::from_bits(0x24).unwrap();
 
     // NESTEST ends at address 0xC66E
-    while cpu.program_counter != 0xC6BC {
+    while cpu.program_counter != 0xC66E {
         let trace = get_cpu_trace(&mut cpu, &mut ppu, &mut nestest_cart);
         // Specifically trimming the reference to remove PPU/CPU cycle counts
-        let reference = String::from(&log_lines.next().unwrap().unwrap()[..73]);
+        let mut reference = String::from(&log_lines.next().unwrap().unwrap()[..73]);
+        reference = str::replace(&reference, "*", " ");
         assert_eq!(trace, reference);
         println!("{}", trace);
         step_cpu(&mut cpu, &mut ppu, &mut nestest_cart);
