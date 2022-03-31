@@ -323,12 +323,13 @@ fn sprite_evaluation(ppu: &PPU, scanline: u8) -> Vec<OAMEntry> {
         .collect::<Vec<OAMEntry>>()
 }
 
-fn get_palette(ppu: &PPU, palette: u8) -> &[u8] {
+fn get_palette(ppu: &PPU, palette: u8) -> [u8; 4] {
     // Retrieve the palette based on just the palette index.
     // The background palettes (0-3) are stored in 0x3F01 - 0x3F0F,
     // and sprite palettes (4-7) are in 0x3F11 - 0x3F1F.
     // The palette table itself starts at address 0x3000.
-    &ppu.palette_table[(3 * palette as usize) + 1..=(3 * palette as usize) + 4]
+    let palette_base = 3 * palette as usize;
+    [ppu.palette_table[0], ppu.palette_table[palette_base + 1], ppu.palette_table[palette_base + 2], ppu.palette_table[palette_base + 3]]
 }
 
 fn merge_bytes(lo: u8, hi: u8, flip_x: bool) -> impl Iterator<Item = u8> {
@@ -514,7 +515,7 @@ fn render_scanline(ppu: &PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, sc
     let line_data = sprite_data.into_iter()
         .zip(background_data.into_iter())
         .zip(bg_priority.into_iter())
-        .map(|((s, b), p)| if p { b } else { s });
+        .map(|((s, b), p)| if p { s } else { b });
 
     // Write the data to the FrameBuffer
     frame.set_line(scanline, line_data)
