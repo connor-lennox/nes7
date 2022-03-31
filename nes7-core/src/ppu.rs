@@ -336,8 +336,8 @@ fn merge_bytes(lo: u8, hi: u8, flip_x: bool) -> impl Iterator<Item = u8> {
     // If we're flipping this over the x, we need to read from bit 7 to bit 0
     // Normally we read from bit 0 to bit 7.
     // Return an iterator of palette indicies (0x00 - 0x03) given the low and high bytes to merge
-    let range = if flip_x { 7u8..=0 } else { 0u8..=7 };
-    range.map(move |b| (if lo & 1 << b != 0 { 0b1 } else { 0 }) | (if hi & 1 << b != 0 { 0b10 } else { 0 }))
+    let range: Vec<u8> = if flip_x { (0u8..=7).collect() } else { (0u8..=7).rev().collect() };
+    range.into_iter().map(move |b| (if lo & 1 << b != 0 { 0b1 } else { 0 }) | (if hi & 1 << b != 0 { 0b10 } else { 0 }))
 }
 
 fn get_sprite_data(ppu: &PPU, cartridge: &Cartridge, scanline: u8, sprite: &OAMEntry) -> Vec<u8> {
@@ -469,7 +469,7 @@ fn get_background_palette_idx(ppu: &PPU, tile_x: u8, tile_y: u8) -> u8 {
 }
 
 fn get_background_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> [u8; 256] {
-    let bank_addr = match ppu.control.bits & 0b11 {
+    let nametable_address = match ppu.control.bits & 0b11 {
         0 => 0x2000,
         1 => 0x2400,
         2 => 0x2800,
@@ -478,15 +478,18 @@ fn get_background_line(ppu: &PPU, cartridge: &Cartridge, scanline: u8) -> [u8; 2
     };
     let mut result = [0; 256];
 
-    let row_start = (scanline as usize / 8) * 32;
+    let row_start = (scanline as u16 / 8) * 32;
     let y_offset = (scanline % 8) as u16;
 
     let tile_y = scanline / 8;
 
+    let pattern_table_addr = if ppu.control.bits & 0b0001_0000 != 0 { 0x1000 } else { 0x0000 };
+
     for tile_x in 0u8..32 {
-        let nametable_entry = ppu.vram[row_start + tile_x as usize] as u16;
-        let lo = read_internal(ppu, cartridge, bank_addr + nametable_entry + y_offset);
-        let hi = read_internal(ppu, cartridge, bank_addr + nametable_entry + y_offset + 8);
+        let mirrored_address = mirror_vram_address(nametable_address + row_start + tile_x as u16, cartridge.get_mirroring());
+        let nametable_entry = (ppu.vram[mirrored_address as usize] as u16) << 4;
+        let lo = cartridge.chr_read(pattern_table_addr + nametable_entry + y_offset);
+        let hi = cartridge.chr_read(pattern_table_addr + nametable_entry + y_offset + 8);
 
         let bg_palette = get_palette(ppu, get_background_palette_idx(ppu, tile_x, tile_y));
         let palette_indices = merge_bytes(lo, hi, false);

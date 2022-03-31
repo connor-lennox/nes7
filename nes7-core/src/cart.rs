@@ -47,7 +47,7 @@ pub fn from_binary(data: &Vec<u8>) -> Result<Cartridge, String> {
     let trainer_present = data[6] & 0b0100 != 0;
 
     let prg_start = 16 + if trainer_present { 512 } else { 0 };
-    let chr_start = prg_start + prg_start;
+    let chr_start = prg_start + prg_size;
 
     let prg_rom = data[prg_start..(prg_start + prg_size)].to_vec();
     let chr_rom = data[chr_start..(chr_start + chr_size)].to_vec();
