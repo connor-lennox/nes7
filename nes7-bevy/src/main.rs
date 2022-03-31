@@ -15,6 +15,7 @@ fn main() {
             title: "Nes7".to_string(),
             width: (WIDTH * 3) as f32,
             height: (HEIGHT * 3) as f32,
+            scale_factor_override: Some(1f64),
             ..Default::default()
         })
         .insert_resource(PixelsOptions {
