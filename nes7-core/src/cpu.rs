@@ -588,7 +588,20 @@ pub fn interpret_op_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cart
             cpu.status.set(CpuFlags::CARRY, cpu.status.contains(CpuFlags::NEGATIVE));
         },
         OpWithMode::ANE => panic!("Unstable opcode ANE executed"),
-        OpWithMode::ARR => todo!("ARR"),
+        OpWithMode::ARR => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.and(value);
+            cpu.ror_acc();
+
+            let result = cpu.register_a;
+            let bit_5 = (result >> 5) & 1;
+            let bit_6 = (result >> 6) & 1;
+            
+            cpu.status.set(CpuFlags::CARRY, bit_6 == 1);
+            cpu.status.set(CpuFlags::OVERFLOW, bit_5 ^ bit_6 == 1);
+            cpu.update_zero_negative_flags(result);
+        },
         OpWithMode::DCP => {
             let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
             dec(cpu, ppu, cartridge, addr);
@@ -608,7 +621,12 @@ pub fn interpret_op_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cart
             cpu.lda(value);
             cpu.register_x = value;
         },
-        OpWithMode::LXA => todo!("LXA"),
+        OpWithMode::LXA => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            cpu.lda(value);
+            cpu.tax();
+        },
         OpWithMode::RLA => {
             rol(cpu, ppu, cartridge, mode);
             // Performing ROL already stepped the program counter
@@ -629,10 +647,24 @@ pub fn interpret_op_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cart
             let value = cpu.register_a & cpu.register_x;
             mem_write(cpu, ppu, cartridge, addr, value);
         },
-        OpWithMode::SBX => todo!("SBX"),
+        OpWithMode::SBX => {
+            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let value = mem_read(cpu, ppu, cartridge, addr);
+            let x_and_a = cpu.register_x & cpu.register_a;
+            let result = x_and_a.wrapping_sub(value);
+
+            cpu.status.set(CpuFlags::CARRY, value <= x_and_a);
+            cpu.update_zero_negative_flags(result);
+
+            cpu.register_x = result;
+        },
         OpWithMode::SHA => todo!("SHA"),
         OpWithMode::SHX => todo!("SHX"),
-        OpWithMode::SHY => todo!("SHY"),
+        OpWithMode::SHY => {
+            let addr = mem_read_u16(cpu, ppu, cartridge, cpu.program_counter);
+            let value = cpu.register_y & ((addr >> 8) as u8).wrapping_add(1);
+            mem_write(cpu, ppu, cartridge, addr, value);
+        },
         OpWithMode::SLO => {
             asl(cpu, ppu, cartridge, mode);
             // Performing the ASL already stepped the program counter
