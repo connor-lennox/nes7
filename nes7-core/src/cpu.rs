@@ -72,11 +72,11 @@ impl CPU {
         // Write the value to the stack position then DECREMENT the stack pointer.
         // The stack is bound to page 1 (0x0100 - 0x01FF)
         self.ram[(0x0100 | self.stack_pointer as u16) as usize] = value;
-        self.stack_pointer -= 1;
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
     pub fn pop_stack(&mut self) -> u8 {
-        self.stack_pointer += 1;
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
         self.ram[(0x0100 | self.stack_pointer as u16) as usize]
     }
 
@@ -170,7 +170,9 @@ impl CPU {
     }
 
     pub fn plp(&mut self) {
-        self.status.bits = (self.pop_stack() & 0b1110_1111) | (self.status.bits & 0b0010_0000)
+        self.status.bits = self.pop_stack();
+        self.status.insert(CpuFlags::BREAK2);
+        self.status.remove(CpuFlags::BREAK);
     }
 
     pub fn php(&mut self) {
@@ -216,7 +218,7 @@ impl CPU {
         // Calculate result of rotating in carry flag
         let res = (self.register_a >> 1) | (if self.status.contains(CpuFlags::CARRY) {0b1000_0000} else {0});
         // Update carry flag after calculation
-        self.status.set(CpuFlags::CARRY, self.register_a * 0b0000_0001 != 0);
+        self.status.set(CpuFlags::CARRY, self.register_a & 0b0000_0001 != 0);
         self.register_a = res;
         self.update_zero_negative_flags(self.register_a);
     }
@@ -224,8 +226,8 @@ impl CPU {
     pub fn bit(&mut self, value: u8) {
         // Bit 7 and 6 of value are put into N and V flags.
         // Z flag is set to (register_a AND value)
-        self.status.set(CpuFlags::NEGATIVE, value & 0b1000_0000 == 0b1000_0000);
-        self.status.set(CpuFlags::OVERFLOW, value & 0b0100_0000 == 0b0100_0000);
+        self.status.set(CpuFlags::NEGATIVE, value & 0b1000_0000 > 0);
+        self.status.set(CpuFlags::OVERFLOW, value & 0b0100_0000 > 0);
         self.status.set(CpuFlags::ZERO, self.register_a & value == 0);
     }
 
@@ -657,6 +659,7 @@ pub fn interpret_op_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cart
 
 fn interpret(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, opcode: &Opcode) -> u8 {
     match opcode {
+        // TODO: Include bonus cycles from certain instruction/mode pairings
         Opcode::Op { op, code: _, len: _, cycles } => {
             interpret_op(cpu, ppu, cartridge, op);
             return *cycles;
@@ -688,6 +691,7 @@ pub fn reset_cpu(cpu: &mut CPU, pc: u16) {
     cpu.register_y = 0;
     cpu.stack_pointer = 0xFD;
     cpu.program_counter = pc;
+    cpu.status.bits = 0x24;
 }
 
 
