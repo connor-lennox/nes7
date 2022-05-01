@@ -1,5 +1,6 @@
 use crate::cart::{Cartridge, CartMem, Mirroring};
 use bitflags::bitflags;
+use resources::Resources;
 
 
 pub struct FrameBuffer {
@@ -525,13 +526,16 @@ fn render_scanline(ppu: &PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, sc
 }
 
 
-pub fn step_ppu(ppu: &mut PPU, cartridge: &Cartridge, frame: &mut FrameBuffer, cycles: u16) {
+pub fn step_ppu(components: &Resources, cycles: u16) {
+    let mut ppu = components.get_mut::<PPU>().unwrap();
+    let cartridge = components.get::<Cartridge>().unwrap();
+    let mut frame = components.get_mut::<FrameBuffer>().unwrap();
     ppu.scanline_cycle += cycles;
     // The PPU takes 340 of its cycles (not CPU cycles!) to finish rendering a line
     if ppu.scanline_cycle > 340 {
         // The first 240 lines are visible, the rest are VBLANK lines
         if ppu.current_scanline <= 239 {
-            render_scanline(ppu, cartridge, frame, ppu.current_scanline as u8);
+            render_scanline(&ppu, &cartridge, &mut frame, ppu.current_scanline as u8);
         }
         ppu.scanline_cycle -= 340;
         ppu.current_scanline += 1;

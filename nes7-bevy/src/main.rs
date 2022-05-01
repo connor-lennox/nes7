@@ -4,6 +4,7 @@ use bevy;
 use bevy::prelude::*;
 use bevy_pixels::prelude::*;
 use nes7_core::{cpu::{CPU, step_cpu, reset_cpu_from_cart}, ppu::{PPU, FrameBuffer, step_ppu}, cart::{self, Cartridge}};
+use resources::Resources;
 
 
 const WIDTH: u32 = 256;
@@ -39,10 +40,16 @@ impl Plugin for NESPlugin {
         let cart_data = fs::read(cart_path).unwrap();
         let cartridge = cart::from_binary(&cart_data).unwrap();
 
+        let ppu = PPU::default();
+        let frame = FrameBuffer::new();
+
+        let mut resources = Resources::new();
+        resources.insert(cartridge);
+        resources.insert(ppu);
+        resources.insert(frame);
+
         app.insert_resource(CPU::default())
-            .insert_resource(PPU::default())
-            .insert_resource(FrameBuffer::new())
-            .insert_resource(cartridge)
+            .insert_resource(resources)
             .insert_resource(FrameTimer(Timer::from_seconds(1f32 / 60f32, true)))
             .add_startup_system(startup_nes_system)
             .add_system(step_nes_system);
@@ -50,14 +57,13 @@ impl Plugin for NESPlugin {
 }
 
 
-fn startup_nes_system(mut cpu: ResMut<CPU>, cart: Res<Cartridge>) {
-    reset_cpu_from_cart(&mut cpu, &cart);
+fn startup_nes_system(mut cpu: ResMut<CPU>, components: Res<Resources>) {
+    reset_cpu_from_cart(&mut cpu, &components.get::<Cartridge>().unwrap());
 }
 
 
 fn step_nes_system(time: Res<Time>, mut timer: ResMut<FrameTimer>, 
-                    mut cpu: ResMut<CPU>, mut ppu: ResMut<PPU>, 
-                    mut cart: ResMut<Cartridge>, mut frame: ResMut<FrameBuffer>,
+                    mut cpu: ResMut<CPU>, components: Res<Resources>,
                     mut pixels: ResMut<PixelsResource>) {
     
     if timer.0.tick(time.delta()).just_finished() {
@@ -65,14 +71,15 @@ fn step_nes_system(time: Res<Time>, mut timer: ResMut<FrameTimer>,
         let mut budget = 29780;
         while budget > 0 {
             // Step components based on how long the CPU operation takes
-            let cycles = step_cpu(&mut cpu, &mut ppu, &mut cart);
-            step_ppu(&mut ppu, &cart, &mut frame, (cycles as u16) * 3);
+            let cycles = step_cpu(&mut cpu, &components);
+            step_ppu(&components, (cycles as u16) * 3);
 
             // Deduct from our cpu cycle budget for the frame
             budget -= cycles as i32;
         }
 
         // Update display
+        let frame = &components.get::<FrameBuffer>().unwrap();
         let pixel_data: Vec<u8> = frame.pixels.iter()
                                     .map(|p| PALETTE[*p as usize])
                                     .flat_map(|tup| [tup.0, tup.1, tup.2, 255])

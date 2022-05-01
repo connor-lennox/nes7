@@ -4,15 +4,16 @@ use std::path::PathBuf;
 
 use nes7_core::cpu::*;
 use nes7_core::opcodes::{Opcode, Op, OpWithMode, OPCODE_MAP};
-use nes7_core::cart::{self, Cartridge};
+use nes7_core::cart;
 use nes7_core::ppu::PPU;
+use resources::Resources;
 
 
-fn get_opcode_no_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, pc: u16, op: &Op, _: &u8, len: &u8) -> String {
+fn get_opcode_no_mode(cpu: &mut CPU, components: &Resources, pc: u16, op: &Op, _: &u8, len: &u8) -> String {
     let hex = match len {
-        1 => format!("{:02X}", mem_read(cpu, ppu, cartridge, pc)),
-        2 => format!("{:02X} {:02X}", mem_read(cpu, ppu, cartridge, pc), mem_read(cpu, ppu, cartridge, pc+1)),
-        3 => format!("{:02X} {:02X} {:02X}", mem_read(cpu, ppu, cartridge, pc), mem_read(cpu, ppu, cartridge, pc+1), mem_read(cpu, ppu, cartridge, pc+2)),
+        1 => format!("{:02X}", mem_read(cpu, components, pc)),
+        2 => format!("{:02X} {:02X}", mem_read(cpu, components, pc), mem_read(cpu, components, pc+1)),
+        3 => format!("{:02X} {:02X} {:02X}", mem_read(cpu, components, pc), mem_read(cpu, components, pc+1), mem_read(cpu, components, pc+2)),
         _ => panic!("too long no mode opcode"),
     };
 
@@ -20,12 +21,12 @@ fn get_opcode_no_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, p
         1 => String::from(""),
         2 => {
             // Local jumps
-            let jmp = mem_read(cpu, ppu, cartridge, pc + 1);
+            let jmp = mem_read(cpu, components, pc + 1);
             let address = (pc as usize + 2).wrapping_add((jmp as i8) as usize);
             format!("${:04X}", address)
         },
         3 => {
-            let address = mem_read_u16(cpu, ppu, cartridge, pc + 1);
+            let address = mem_read_u16(cpu, components, pc + 1);
             format!("${:04X}", address)
         },
         _ => String::from(""),
@@ -34,19 +35,19 @@ fn get_opcode_no_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, p
     format!("{:8}  {: >4?} {}", hex, op, ex)
 }
 
-fn get_opcode_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, pc: u16, op: &OpWithMode, code: &u8, len: &u8, addr_mode: &AddressingMode) -> String {
+fn get_opcode_with_mode(cpu: &mut CPU, components: &Resources, pc: u16, op: &OpWithMode, code: &u8, len: &u8, addr_mode: &AddressingMode) -> String {
     let (mem_addr, stored_value) = match addr_mode {
         AddressingMode::Immediate | AddressingMode::Accumulator => (0, 0),
         _ => {
-            let addr = get_operand_addr(cpu, ppu, cartridge, &addr_mode, pc + 1);
-            (addr, mem_read(cpu, ppu, cartridge, addr))
+            let addr = get_operand_addr(cpu, components, &addr_mode, pc + 1);
+            (addr, mem_read(cpu, components, addr))
         }
     };
 
     let hex = match len {
-        1 => format!("{:02X}", mem_read(cpu, ppu, cartridge, pc)),
-        2 => format!("{:02X} {:02X}", mem_read(cpu, ppu, cartridge, pc), mem_read(cpu, ppu, cartridge, pc+1)),
-        3 => format!("{:02X} {:02X} {:02X}", mem_read(cpu, ppu, cartridge, pc), mem_read(cpu, ppu, cartridge, pc+1), mem_read(cpu, ppu, cartridge, pc+2)),
+        1 => format!("{:02X}", mem_read(cpu, components, pc)),
+        2 => format!("{:02X} {:02X}", mem_read(cpu, components, pc), mem_read(cpu, components, pc+1)),
+        3 => format!("{:02X} {:02X} {:02X}", mem_read(cpu, components, pc), mem_read(cpu, components, pc+1), mem_read(cpu, components, pc+2)),
         _ => panic!("too long no mode opcode"),
     };
 
@@ -56,7 +57,7 @@ fn get_opcode_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge,
             _ => String::from(""),
         },
         2 => {
-            let address = mem_read(cpu, ppu, cartridge, pc + 1);
+            let address = mem_read(cpu, components, pc + 1);
 
             match addr_mode {
                 AddressingMode::Immediate => format!("#${:02X}", address),
@@ -87,7 +88,7 @@ fn get_opcode_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge,
             }
         },
         3 => {
-            let address = mem_read_u16(cpu, ppu, cartridge, pc + 1);
+            let address = mem_read_u16(cpu, components, pc + 1);
 
             match addr_mode {
                 AddressingMode::Absolute => match code {
@@ -104,11 +105,11 @@ fn get_opcode_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge,
                 ),
                 AddressingMode::Indirect => {
                     let jmp_addr = if address & 0x00FF == 0x00FF {
-                        let lo = mem_read(cpu, ppu, cartridge, address);
-                        let hi = mem_read(cpu, ppu, cartridge, address & 0xFF00);
+                        let lo = mem_read(cpu, components, address);
+                        let hi = mem_read(cpu, components, address & 0xFF00);
                         (hi as u16) << 8 | (lo as u16)
                     } else {
-                        mem_read_u16(cpu, ppu, cartridge, address)
+                        mem_read_u16(cpu, components, address)
                     };
                     format!("(${:04X}) = {:04X}", address, jmp_addr)
                 },
@@ -121,13 +122,13 @@ fn get_opcode_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge,
     format!("{:8}  {: >4?} {}", hex, op, ex)
 }
 
-fn get_cpu_opcode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge) -> String {
+fn get_cpu_opcode(cpu: &mut CPU, components: &Resources) -> String {
     let pc = cpu.program_counter;
-    let op_hex = mem_read(cpu, ppu, cartridge, pc);
+    let op_hex = mem_read(cpu, components, pc);
     let opcode = OPCODE_MAP.get(&op_hex).unwrap_or_else(|| panic!("Unimplemented opcode 0x{:02X}", op_hex));
     let hex = match opcode {
-        Opcode::Op { op, code, len, cycles: _ } => get_opcode_no_mode(cpu, ppu, cartridge,  pc, op, code, len),
-        Opcode::OpWithMode { op, code, len, cycles: _, mode } => get_opcode_with_mode(cpu, ppu, cartridge,  pc, op, code, len, mode),
+        Opcode::Op { op, code, len, cycles: _ } => get_opcode_no_mode(cpu, components,  pc, op, code, len),
+        Opcode::OpWithMode { op, code, len, cycles: _, mode } => get_opcode_with_mode(cpu, components,  pc, op, code, len, mode),
     };
     format!("{:04X}  {}", pc, hex)
 }
@@ -137,8 +138,8 @@ fn get_cpu_registers(cpu: &mut CPU) -> String {
         cpu.register_a, cpu.register_x, cpu.register_y, cpu.status.bits(), cpu.stack_pointer)
 }
 
-fn get_cpu_trace(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge) -> String {
-    let opcode_str = get_cpu_opcode(cpu, ppu, cartridge);
+fn get_cpu_trace(cpu: &mut CPU, components: &Resources) -> String {
+    let opcode_str = get_cpu_opcode(cpu, components);
     let register_str = get_cpu_registers(cpu);
     format!("{:47} {}", opcode_str, register_str)
 }
@@ -157,22 +158,27 @@ fn run_trace_test() {
 
     let cart_data = fs::read(d).unwrap();
 
-    let mut nestest_cart = cart::from_binary(&cart_data).unwrap();
+    let nestest_cart = cart::from_binary(&cart_data).unwrap();
     let mut cpu = CPU::default();
-    let mut ppu = PPU::default();
+    let ppu = PPU::default();
 
     // Initialization for the NESTEST suite
     reset_cpu(&mut cpu, 0xC000);
     cpu.status = CpuFlags::from_bits(0x24).unwrap();
 
+    let mut resources = Resources::new();
+    resources.insert(ppu);
+    resources.insert(nestest_cart);
+    let resources = resources;
+
     // NESTEST ends at address 0xC66E
     while cpu.program_counter != 0xC66E {
-        let trace = get_cpu_trace(&mut cpu, &mut ppu, &mut nestest_cart);
+        let trace = get_cpu_trace(&mut cpu, &resources);
         // Specifically trimming the reference to remove PPU/CPU cycle counts
         let mut reference = String::from(&log_lines.next().unwrap().unwrap()[..73]);
         reference = str::replace(&reference, "*", " ");
         assert_eq!(trace, reference);
         println!("{}", trace);
-        step_cpu(&mut cpu, &mut ppu, &mut nestest_cart);
+        step_cpu(&mut cpu, &resources);
     }
 }

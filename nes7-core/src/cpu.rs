@@ -1,7 +1,9 @@
 use crate::cart::{Cartridge, CartMem};
 use crate::opcodes::{Op, OpWithMode, Opcode, OPCODE_MAP};
 use crate::ppu::{PPU, ppu_read, ppu_write};
+
 use bitflags::bitflags;
+use resources::*;
 
 #[derive(Debug, Clone, Copy)]
 #[allow(non_camel_case_types)]
@@ -250,73 +252,73 @@ const PRG_ROM_START: u16 = 0x8000;
 const PRG_ROM_END: u16 = 0xFFFF;
 
 
-pub fn mem_read(cpu: &CPU, ppu: &mut PPU, cartridge: &Cartridge, addr: u16) -> u8 {
+pub fn mem_read(cpu: &CPU, components: &Resources, addr: u16) -> u8 {
     match addr {
         RAM_START..=RAM_END => cpu.ram[(addr & 0x7FF) as usize],
-        PPU_REGISTER_START..=PPU_REGISTER_END => ppu_read(ppu, cartridge, addr),
-        PRG_ROM_START..=PRG_ROM_END => cartridge.pgr_read(addr),
+        PPU_REGISTER_START..=PPU_REGISTER_END => ppu_read(&mut components.get_mut::<PPU>().unwrap(), &components.get::<Cartridge>().unwrap(), addr),
+        PRG_ROM_START..=PRG_ROM_END => components.get::<Cartridge>().unwrap().pgr_read(addr),
         // _ => panic!("Attempted to read from unknown address")
         _ => 0,
     }
 }
 
-pub fn mem_write(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, addr: u16, value: u8) {
+pub fn mem_write(cpu: &mut CPU, components: &Resources, addr: u16, value: u8) {
     match addr {
         RAM_START..=RAM_END => cpu.ram[(addr & 0x7FF) as usize] = value,
-        PPU_REGISTER_START..=PPU_REGISTER_END => ppu_write(ppu, cartridge, addr, value),
-        PRG_ROM_START..=PRG_ROM_END => cartridge.pgr_write(addr, value),
+        PPU_REGISTER_START..=PPU_REGISTER_END => ppu_write(&mut components.get_mut::<PPU>().unwrap(), &mut components.get_mut::<Cartridge>().unwrap(), addr, value),
+        PRG_ROM_START..=PRG_ROM_END => components.get_mut::<Cartridge>().unwrap().pgr_write(addr, value),
         PPU_OAM => todo!("OAM to PPU"),
         // _ => panic!("Attempted to write to unknown address")
         _ => (),
     }
 }
 
-pub fn mem_read_u16(cpu: &CPU, ppu: &mut PPU, cartridge: &Cartridge, addr: u16) -> u16 {
+pub fn mem_read_u16(cpu: &CPU, components: &Resources, addr: u16) -> u16 {
     // The NES packs 16-bit values in little endian
-    let lo = mem_read(cpu, ppu, cartridge, addr) as u16;
-    let hi = mem_read(cpu, ppu, cartridge, addr + 1) as u16;
+    let lo = mem_read(cpu, components, addr) as u16;
+    let hi = mem_read(cpu, components, addr + 1) as u16;
     (hi << 8) | (lo)
 }
 
-pub fn mem_write_u16(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, addr: u16, value: u16) {
+pub fn mem_write_u16(cpu: &mut CPU, components: &Resources, addr: u16, value: u16) {
     let lo = (value & 0xff) as u8;
     let hi = (value >> 8) as u8;
-    mem_write(cpu, ppu, cartridge, addr, lo);
-    mem_write(cpu, ppu, cartridge, addr + 1, hi);
+    mem_write(cpu, components, addr, lo);
+    mem_write(cpu, components, addr + 1, hi);
 }
 
 
-pub fn get_operand_addr(cpu: &CPU, ppu: &mut PPU, cartridge: &Cartridge, mode: &AddressingMode, from: u16) -> u16 {
+pub fn get_operand_addr(cpu: &CPU, components: &Resources, mode: &AddressingMode, from: u16) -> u16 {
     match mode {
         AddressingMode::Immediate => from,
-        AddressingMode::ZeroPage => mem_read(cpu, ppu, cartridge, from) as u16,
-        AddressingMode::ZeroPage_X => mem_read(cpu, ppu, cartridge, from).wrapping_add(cpu.register_x) as u16,
-        AddressingMode::ZeroPage_Y => mem_read(cpu, ppu, cartridge, from).wrapping_add(cpu.register_y) as u16,
-        AddressingMode::Absolute => mem_read_u16(cpu, ppu, cartridge, from),
-        AddressingMode::Absolute_X => mem_read_u16(cpu, ppu, cartridge, from).wrapping_add(cpu.register_x as u16),
-        AddressingMode::Absolute_Y => mem_read_u16(cpu, ppu, cartridge, from).wrapping_add(cpu.register_y as u16),
+        AddressingMode::ZeroPage => mem_read(cpu, components, from) as u16,
+        AddressingMode::ZeroPage_X => mem_read(cpu, components, from).wrapping_add(cpu.register_x) as u16,
+        AddressingMode::ZeroPage_Y => mem_read(cpu, components, from).wrapping_add(cpu.register_y) as u16,
+        AddressingMode::Absolute => mem_read_u16(cpu, components, from),
+        AddressingMode::Absolute_X => mem_read_u16(cpu, components, from).wrapping_add(cpu.register_x as u16),
+        AddressingMode::Absolute_Y => mem_read_u16(cpu, components, from).wrapping_add(cpu.register_y as u16),
         AddressingMode::Indirect => {
             // Get the bytes at the PC, this is the address of the address we want (two levels of deref).
             // However, we can't read over a page boundary!
-            let ptr = mem_read_u16(cpu, ppu, cartridge, from);
+            let ptr = mem_read_u16(cpu, components, from);
             if ptr & 0x00FF == 0x00FF {
-                let lo = mem_read(cpu, ppu, cartridge, ptr);
-                let hi = mem_read(cpu, ppu, cartridge, ptr & 0xFF00);
+                let lo = mem_read(cpu, components, ptr);
+                let hi = mem_read(cpu, components, ptr & 0xFF00);
                 (hi as u16) << 8 | (lo as u16)
             } else {
-                mem_read_u16(cpu, ppu, cartridge, ptr) 
+                mem_read_u16(cpu, components, ptr) 
             }
         },
         AddressingMode::Indirect_X => {
-            let ptr = (mem_read(cpu, ppu, cartridge, from) as u8).wrapping_add(cpu.register_x);
-            let lo = mem_read(cpu, ppu, cartridge, ptr as u16);
-            let hi = mem_read(cpu, ppu, cartridge, ptr.wrapping_add(1) as u16);
+            let ptr = (mem_read(cpu, components, from) as u8).wrapping_add(cpu.register_x);
+            let lo = mem_read(cpu, components, ptr as u16);
+            let hi = mem_read(cpu, components, ptr.wrapping_add(1) as u16);
             (hi as u16) << 8 | (lo as u16)
         },
         AddressingMode::Indirect_Y => {
-            let ptr = mem_read(cpu, ppu, cartridge, from);
-            let lo = mem_read(cpu, ppu, cartridge, ptr as u16);
-            let hi = mem_read(cpu, ppu, cartridge, ptr.wrapping_add(1) as u16);
+            let ptr = mem_read(cpu, components, from);
+            let lo = mem_read(cpu, components, ptr as u16);
+            let hi = mem_read(cpu, components, ptr.wrapping_add(1) as u16);
             let deref_addr = (hi as u16) << 8 | (lo as u16);
             deref_addr.wrapping_add(cpu.register_y as u16)
         },
@@ -340,79 +342,79 @@ fn addr_mode_step(mode: &AddressingMode) -> u16 {
     }
 }
 
-fn get_operand_addr_and_step(cpu: &mut CPU, ppu: &mut PPU, cartridge: &Cartridge, mode: &AddressingMode, from: u16) -> u16 {
-    let res = get_operand_addr(cpu, ppu, cartridge, mode, from);
+fn get_operand_addr_and_step(cpu: &mut CPU, components: &Resources, mode: &AddressingMode, from: u16) -> u16 {
+    let res = get_operand_addr(cpu, components, mode, from);
     cpu.program_counter += addr_mode_step(mode);
     res
 }
 
-fn branch(cpu: &mut CPU, ppu: &mut PPU, cartridge: &Cartridge, condition: bool) {
-    let jump_amt: i8 = mem_read(cpu, ppu, cartridge, cpu.program_counter) as i8;
+fn branch(cpu: &mut CPU, components: &Resources, condition: bool) {
+    let jump_amt: i8 = mem_read(cpu, components, cpu.program_counter) as i8;
     cpu.program_counter += 1;
     if condition {
         cpu.program_counter = cpu.program_counter.wrapping_add(jump_amt as u16);
     }
 }
 
-fn dec(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, addr: u16) {
-    let res = mem_read(cpu, ppu, cartridge, addr).wrapping_sub(1);
-    mem_write(cpu, ppu, cartridge, addr, res);
+fn dec(cpu: &mut CPU, components: &Resources, addr: u16) {
+    let res = mem_read(cpu, components, addr).wrapping_sub(1);
+    mem_write(cpu, components, addr, res);
     cpu.update_zero_negative_flags(res);
 }
 
-fn inc(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, addr: u16) {
-    let res = mem_read(cpu, ppu, cartridge, addr).wrapping_add(1);
-    mem_write(cpu, ppu, cartridge, addr, res);
+fn inc(cpu: &mut CPU, components: &Resources, addr: u16) {
+    let res = mem_read(cpu, components, addr).wrapping_add(1);
+    mem_write(cpu, components, addr, res);
     cpu.update_zero_negative_flags(res);
 }
 
 
-fn jsr(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge) {
+fn jsr(cpu: &mut CPU, components: &Resources) {
     // Push the PC + 1, to skip to the first instruction after the jsr
     cpu.push_stack_16(cpu.program_counter + 1);
     // Then jump to the address specified by the next two bytes:
-    cpu.program_counter = mem_read_u16(cpu, ppu, cartridge, cpu.program_counter);
+    cpu.program_counter = mem_read_u16(cpu, components, cpu.program_counter);
 }
 
 
-fn asl(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, mode: &AddressingMode) {
+fn asl(cpu: &mut CPU, components: &Resources, mode: &AddressingMode) {
     match mode {
         AddressingMode::Accumulator => cpu.asl_acc(),
         _ => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let v = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let v = mem_read(cpu, components, addr);
             let res = v << 1;
             cpu.status.set(CpuFlags::CARRY, v & 0b1000_0000 != 0);
-            mem_write(cpu, ppu, cartridge, addr, res);
+            mem_write(cpu, components, addr, res);
             cpu.update_zero_negative_flags(res);
         }
     }
 }
 
-fn lsr(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, mode: &AddressingMode) {
+fn lsr(cpu: &mut CPU, components: &Resources, mode: &AddressingMode) {
     match mode {
         AddressingMode::Accumulator => cpu.lsr_acc(),
         _ => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let v = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let v = mem_read(cpu, components, addr);
             let res = v >> 1;
             cpu.status.set(CpuFlags::CARRY, v & 0b0000_0001 != 0);
-            mem_write(cpu, ppu, cartridge, addr, res);
+            mem_write(cpu, components, addr, res);
             cpu.update_zero_negative_flags(res);
         }
     }
 }
 
 
-fn rol(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, mode: &AddressingMode) {
+fn rol(cpu: &mut CPU, components: &Resources, mode: &AddressingMode) {
     match mode {
         AddressingMode::Accumulator => cpu.rol_acc(),
         _ => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let v = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let v = mem_read(cpu, components, addr);
             let res = (v << 1) | (if cpu.status.contains(CpuFlags::CARRY) {1} else {0});
             cpu.status.set(CpuFlags::CARRY, v & 0b1000_0000 != 0);
-            mem_write(cpu, ppu, cartridge, addr, res);
+            mem_write(cpu, components, addr, res);
             cpu.update_zero_negative_flags(res);
         }
     }
@@ -420,41 +422,41 @@ fn rol(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, mode: &Addressin
 
 
 
-fn ror(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, mode: &AddressingMode) {
+fn ror(cpu: &mut CPU, components: &Resources, mode: &AddressingMode) {
     match mode {
         AddressingMode::Accumulator => cpu.ror_acc(),
         _ => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let v = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let v = mem_read(cpu, components, addr);
             let res = (v >> 1) | (if cpu.status.contains(CpuFlags::CARRY) {0b1000_0000} else {0});
             cpu.status.set(CpuFlags::CARRY, v & 0b0000_0001 != 0);
-            mem_write(cpu, ppu, cartridge, addr, res);
+            mem_write(cpu, components, addr, res);
             cpu.update_zero_negative_flags(res);
         }
     }
 }
 
-fn cmp(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, lhs: u8, addr: u16) {
+fn cmp(cpu: &mut CPU, components: &Resources, lhs: u8, addr: u16) {
     // LHS is one of register_a, register_x, or register_y.
     // RHS comes from Memory
-    let rhs = mem_read(cpu, ppu, cartridge, addr);
+    let rhs = mem_read(cpu, components, addr);
     let res = lhs.wrapping_sub(rhs);
     cpu.update_zero_negative_flags(res);
     cpu.status.set(CpuFlags::CARRY, lhs >= rhs);
 }
 
 
-pub fn interpret_op(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, opcode: &Op) {
+pub fn interpret_op(cpu: &mut CPU, components: &Resources, opcode: &Op) {
     match opcode {
-        Op::BCC => branch(cpu, ppu, cartridge, !cpu.status.contains(CpuFlags::CARRY)),
-        Op::BCS => branch(cpu, ppu, cartridge, cpu.status.contains(CpuFlags::CARRY)),
-        Op::BEQ => branch(cpu, ppu, cartridge, cpu.status.contains(CpuFlags::ZERO)),
-        Op::BMI => branch(cpu, ppu, cartridge, cpu.status.contains(CpuFlags::NEGATIVE)),
-        Op::BNE => branch(cpu, ppu, cartridge, !cpu.status.contains(CpuFlags::ZERO)),
-        Op::BPL => branch(cpu, ppu, cartridge, !cpu.status.contains(CpuFlags::NEGATIVE)),
+        Op::BCC => branch(cpu, components, !cpu.status.contains(CpuFlags::CARRY)),
+        Op::BCS => branch(cpu, components, cpu.status.contains(CpuFlags::CARRY)),
+        Op::BEQ => branch(cpu, components, cpu.status.contains(CpuFlags::ZERO)),
+        Op::BMI => branch(cpu, components, cpu.status.contains(CpuFlags::NEGATIVE)),
+        Op::BNE => branch(cpu, components, !cpu.status.contains(CpuFlags::ZERO)),
+        Op::BPL => branch(cpu, components, !cpu.status.contains(CpuFlags::NEGATIVE)),
         Op::BRK => (), //TODO: push PC+2, set I flag, push SR
-        Op::BVC => branch(cpu, ppu, cartridge, !cpu.status.contains(CpuFlags::OVERFLOW)),
-        Op::BVS => branch(cpu, ppu, cartridge, cpu.status.contains(CpuFlags::OVERFLOW)),
+        Op::BVC => branch(cpu, components, !cpu.status.contains(CpuFlags::OVERFLOW)),
+        Op::BVS => branch(cpu, components, cpu.status.contains(CpuFlags::OVERFLOW)),
         Op::CLC => cpu.status.remove(CpuFlags::CARRY),
         Op::CLD => cpu.status.remove(CpuFlags::DECIMAL),
         Op::CLI => cpu.status.remove(CpuFlags::INTERRUPT),
@@ -463,7 +465,7 @@ pub fn interpret_op(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, opc
         Op::DEY => cpu.dey(),
         Op::INX => cpu.inx(),
         Op::INY => cpu.iny(),
-        Op::JSR => jsr(cpu, ppu, cartridge),
+        Op::JSR => jsr(cpu, components),
         Op::NOP => (),
         Op::PHA => cpu.push_stack(cpu.register_a),
         Op::PHP => cpu.php(),
@@ -483,114 +485,114 @@ pub fn interpret_op(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, opc
     }
 }
 
-pub fn interpret_op_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, opcode: &OpWithMode, mode: &AddressingMode) {
+pub fn interpret_op_with_mode(cpu: &mut CPU, components: &Resources, opcode: &OpWithMode, mode: &AddressingMode) {
     match opcode {
         OpWithMode::ADC => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.adc(value);
         },
         OpWithMode::AND => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.and(value);
         },
-        OpWithMode::ASL => asl(cpu, ppu, cartridge, mode),
+        OpWithMode::ASL => asl(cpu, components, mode),
         OpWithMode::BIT => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.bit(value);
         },
         OpWithMode::CMP => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            cmp(cpu, ppu, cartridge, cpu.register_a, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            cmp(cpu, components, cpu.register_a, addr);
         },
         OpWithMode::CPX => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            cmp(cpu, ppu, cartridge, cpu.register_x, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            cmp(cpu, components, cpu.register_x, addr);
         },
         OpWithMode::CPY => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            cmp(cpu, ppu, cartridge, cpu.register_y, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            cmp(cpu, components, cpu.register_y, addr);
         },
         OpWithMode::DEC => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            dec(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            dec(cpu, components, addr);
         },
         OpWithMode::EOR => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.register_a = cpu.register_a ^ value;
             cpu.update_zero_negative_flags(cpu.register_a);
         },
         OpWithMode::INC => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            inc(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            inc(cpu, components, addr);
         },
         OpWithMode::JMP => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
             cpu.program_counter = addr;
         },
         OpWithMode::LDA => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.lda(value);
         },
         OpWithMode::LDX => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            cpu.register_x = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            cpu.register_x = mem_read(cpu, components, addr);
             cpu.update_zero_negative_flags(cpu.register_x);
         },
         OpWithMode::LDY => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            cpu.register_y = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            cpu.register_y = mem_read(cpu, components, addr);
             cpu.update_zero_negative_flags(cpu.register_y);
         },
-        OpWithMode::LSR => lsr(cpu, ppu, cartridge, mode),
+        OpWithMode::LSR => lsr(cpu, components, mode),
         OpWithMode::ORA => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.register_a = cpu.register_a | value;
             cpu.update_zero_negative_flags(cpu.register_a);
         },
-        OpWithMode::ROL => rol(cpu, ppu, cartridge, mode),
-        OpWithMode::ROR => ror(cpu, ppu, cartridge, mode),
+        OpWithMode::ROL => rol(cpu, components, mode),
+        OpWithMode::ROR => ror(cpu, components, mode),
         OpWithMode::SBC => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             // SBC is actually ADC but with 2's complement of the value:
             cpu.adc(((value as i8).wrapping_neg().wrapping_sub(1)) as u8);
         },
         OpWithMode::STA => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            mem_write(cpu, ppu, cartridge, addr, cpu.register_a);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            mem_write(cpu, components, addr, cpu.register_a);
         },
         OpWithMode::STX => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            mem_write(cpu, ppu, cartridge, addr, cpu.register_x);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            mem_write(cpu, components, addr, cpu.register_x);
         },
         OpWithMode::STY => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            mem_write(cpu, ppu, cartridge, addr, cpu.register_y);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            mem_write(cpu, components, addr, cpu.register_y);
         },
 
         // Starting from here, these are the illegal opcodes:
         OpWithMode::ALR => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.and(value);
             cpu.lsr_acc();
         },
         OpWithMode::ANC => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.and(value);
             cpu.status.set(CpuFlags::CARRY, cpu.status.contains(CpuFlags::NEGATIVE));
         },
         OpWithMode::ANE => panic!("Unstable opcode ANE executed"),
         OpWithMode::ARR => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.and(value);
             cpu.ror_acc();
 
@@ -603,53 +605,53 @@ pub fn interpret_op_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cart
             cpu.update_zero_negative_flags(result);
         },
         OpWithMode::DCP => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            dec(cpu, ppu, cartridge, addr);
-            cmp(cpu, ppu, cartridge, cpu.register_a, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            dec(cpu, components, addr);
+            cmp(cpu, components, cpu.register_a, addr);
         },
         OpWithMode::ISB => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            inc(cpu, ppu, cartridge, addr);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            inc(cpu, components, addr);
+            let value = mem_read(cpu, components, addr);
             // SBC is actually ADC but with 2's complement of the value:
             cpu.adc(((value as i8).wrapping_neg().wrapping_sub(1)) as u8);
         },
         OpWithMode::LAS => todo!("LAS"),
         OpWithMode::LAX => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.lda(value);
             cpu.register_x = value;
         },
         OpWithMode::LXA => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             cpu.lda(value);
             cpu.tax();
         },
         OpWithMode::RLA => {
-            rol(cpu, ppu, cartridge, mode);
+            rol(cpu, components, mode);
             // Performing ROL already stepped the program counter
-            let addr = get_operand_addr(cpu, ppu, cartridge, mode, cpu.program_counter-addr_mode_step(mode));
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr(cpu, components, mode, cpu.program_counter-addr_mode_step(mode));
+            let value = mem_read(cpu, components, addr);
             cpu.register_a = cpu.register_a & value;
             cpu.update_zero_negative_flags(cpu.register_a);
         },
         OpWithMode::RRA => {
-            ror(cpu, ppu, cartridge, mode);
+            ror(cpu, components, mode);
             // Performing ROR already stepped the program counter
-            let addr = get_operand_addr(cpu, ppu, cartridge, mode, cpu.program_counter-addr_mode_step(mode));
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr(cpu, components, mode, cpu.program_counter-addr_mode_step(mode));
+            let value = mem_read(cpu, components, addr);
             cpu.adc(value)
         },
         OpWithMode::SAX => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
             let value = cpu.register_a & cpu.register_x;
-            mem_write(cpu, ppu, cartridge, addr, value);
+            mem_write(cpu, components, addr, value);
         },
         OpWithMode::SBX => {
-            let addr = get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
+            let value = mem_read(cpu, components, addr);
             let x_and_a = cpu.register_x & cpu.register_a;
             let result = x_and_a.wrapping_sub(value);
 
@@ -661,54 +663,54 @@ pub fn interpret_op_with_mode(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cart
         OpWithMode::SHA => todo!("SHA"),
         OpWithMode::SHX => todo!("SHX"),
         OpWithMode::SHY => {
-            let addr = mem_read_u16(cpu, ppu, cartridge, cpu.program_counter);
+            let addr = mem_read_u16(cpu, components, cpu.program_counter);
             let value = cpu.register_y & ((addr >> 8) as u8).wrapping_add(1);
-            mem_write(cpu, ppu, cartridge, addr, value);
+            mem_write(cpu, components, addr, value);
         },
         OpWithMode::SLO => {
-            asl(cpu, ppu, cartridge, mode);
+            asl(cpu, components, mode);
             // Performing the ASL already stepped the program counter
-            let addr = get_operand_addr(cpu, ppu, cartridge, mode, cpu.program_counter-addr_mode_step(mode));
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr(cpu, components, mode, cpu.program_counter-addr_mode_step(mode));
+            let value = mem_read(cpu, components, addr);
             cpu.register_a = cpu.register_a | value;
             cpu.update_zero_negative_flags(cpu.register_a);
         },
         OpWithMode::SRE => {
-            lsr(cpu, ppu, cartridge, mode);
+            lsr(cpu, components, mode);
             // LSR has already stepped PC
-            let addr = get_operand_addr(cpu, ppu, cartridge, mode, cpu.program_counter-addr_mode_step(mode));
-            let value = mem_read(cpu, ppu, cartridge, addr);
+            let addr = get_operand_addr(cpu, components, mode, cpu.program_counter-addr_mode_step(mode));
+            let value = mem_read(cpu, components, addr);
             cpu.register_a = cpu.register_a ^ value;
             cpu.update_zero_negative_flags(cpu.register_a);
         },
         OpWithMode::TAS => todo!("TAS"),
         OpWithMode::NOP => {
             // Just grabbing an address for side effects
-            get_operand_addr_and_step(cpu, ppu, cartridge, mode, cpu.program_counter);
+            get_operand_addr_and_step(cpu, components, mode, cpu.program_counter);
         },
     }
 }
 
-fn interpret(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge, opcode: &Opcode) -> u8 {
+fn interpret(cpu: &mut CPU, components: &Resources, opcode: &Opcode) -> u8 {
     match opcode {
         // TODO: Include bonus cycles from certain instruction/mode pairings
         Opcode::Op { op, code: _, len: _, cycles } => {
-            interpret_op(cpu, ppu, cartridge, op);
+            interpret_op(cpu, components, op);
             return *cycles;
         },
         Opcode::OpWithMode { op, code: _, len: _, cycles, mode } => {
-            interpret_op_with_mode(cpu, ppu, cartridge, op, mode);
+            interpret_op_with_mode(cpu, components, op, mode);
             return *cycles;
         },
     }
 }
 
-pub fn step_cpu(cpu: &mut CPU, ppu: &mut PPU, cartridge: &mut Cartridge) -> u8 {
-    let code = mem_read(cpu, ppu, cartridge, cpu.program_counter);
+pub fn step_cpu(cpu: &mut CPU, components: &Resources) -> u8 {
+    let code = mem_read(cpu, components, cpu.program_counter);
     cpu.program_counter += 1;
     let opcode = OPCODE_MAP.get(&code).expect(&format!("Unknown opcode {:x}", code));
 
-    interpret(cpu, ppu, cartridge, opcode)
+    interpret(cpu, components, opcode)
 }
 
 
@@ -739,8 +741,8 @@ mod test {
 
     fn run_test_opcodes(cpu: &mut CPU, opcodes: Vec<u8>) {
         // Returns the CPU state after running the provided opcodes
-        let mut ppu = PPU::default();
-        let mut cartridge = test::test_cart();
+        let ppu = PPU::default();
+        let cartridge = test::test_cart();
 
         // Write the program into CPU RAM
         let mut addr = 0;
@@ -749,10 +751,15 @@ mod test {
             addr += 1;
         };
 
+        let mut resources = Resources::new();
+        resources.insert(ppu);
+        resources.insert(cartridge);
+        let resources = resources;
+
         // Run until we hit a BRK code
         cpu.program_counter = 0;
         while cpu.ram[cpu.program_counter as usize] != 0x00 {
-            step_cpu(cpu, &mut ppu, &mut cartridge);
+            step_cpu(cpu, &resources);
         }
     }
 
