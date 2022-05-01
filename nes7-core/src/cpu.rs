@@ -1,4 +1,5 @@
 use crate::cart::{Cartridge, CartMem};
+use crate::joypad::Joypad;
 use crate::opcodes::{Op, OpWithMode, Opcode, OPCODE_MAP};
 use crate::ppu::{PPU, ppu_read, ppu_write};
 
@@ -248,6 +249,8 @@ const PPU_REGISTER_END: u16 = 0x2007;
 
 const PPU_OAM: u16 = 0x4014;
 
+const JOYPAD: u16 = 0x4016;
+
 const PRG_ROM_START: u16 = 0x8000;
 const PRG_ROM_END: u16 = 0xFFFF;
 
@@ -257,6 +260,7 @@ pub fn mem_read(cpu: &CPU, components: &Resources, addr: u16) -> u8 {
         RAM_START..=RAM_END => cpu.ram[(addr & 0x7FF) as usize],
         PPU_REGISTER_START..=PPU_REGISTER_END => ppu_read(&mut components.get_mut::<PPU>().unwrap(), &components.get::<Cartridge>().unwrap(), addr),
         PRG_ROM_START..=PRG_ROM_END => components.get::<Cartridge>().unwrap().pgr_read(addr),
+        JOYPAD => components.get_mut::<Joypad>().unwrap().read(),
         // _ => panic!("Attempted to read from unknown address")
         _ => 0,
     }
@@ -268,6 +272,7 @@ pub fn mem_write(cpu: &mut CPU, components: &Resources, addr: u16, value: u8) {
         PPU_REGISTER_START..=PPU_REGISTER_END => ppu_write(&mut components.get_mut::<PPU>().unwrap(), &mut components.get_mut::<Cartridge>().unwrap(), addr, value),
         PRG_ROM_START..=PRG_ROM_END => components.get_mut::<Cartridge>().unwrap().pgr_write(addr, value),
         PPU_OAM => todo!("OAM to PPU"),
+        JOYPAD => components.get_mut::<Joypad>().unwrap().write(value),
         // _ => panic!("Attempted to write to unknown address")
         _ => (),
     }

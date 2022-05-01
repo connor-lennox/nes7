@@ -3,12 +3,15 @@ use std::{env, fs};
 use bevy;
 use bevy::prelude::*;
 use bevy_pixels::prelude::*;
-use nes7_core::{cpu::{CPU, step_cpu, reset_cpu_from_cart}, ppu::{PPU, FrameBuffer, step_ppu}, cart::{self, Cartridge}};
+use nes7_core::{cpu::{CPU, step_cpu, reset_cpu_from_cart}, ppu::{PPU, FrameBuffer, step_ppu}, cart::{self, Cartridge}, joypad::{Joypad, JoypadButtons}};
 use resources::Resources;
 
 
 const WIDTH: u32 = 256;
 const HEIGHT: u32 = 240;
+
+// Keys for input, in order [A, B, Select, Start, Up, Down, Left, Right]
+const KEYMAP: [KeyCode; 8] = [KeyCode::Z, KeyCode::X, KeyCode::RShift, KeyCode::Return, KeyCode::Up, KeyCode::Down, KeyCode::Left, KeyCode::Right];
 
 fn main() {
     App::new()
@@ -41,18 +44,21 @@ impl Plugin for NESPlugin {
         let cartridge = cart::from_binary(&cart_data).unwrap();
 
         let ppu = PPU::default();
+        let joypad = Joypad::default();
         let frame = FrameBuffer::new();
 
         let mut resources = Resources::new();
         resources.insert(cartridge);
         resources.insert(ppu);
+        resources.insert(joypad);
         resources.insert(frame);
 
         app.insert_resource(CPU::default())
             .insert_resource(resources)
             .insert_resource(FrameTimer(Timer::from_seconds(1f32 / 60f32, true)))
             .add_startup_system(startup_nes_system)
-            .add_system(step_nes_system);
+            .add_system(step_nes_system)
+            .add_system(keyboard_input);
     }
 }
 
@@ -87,6 +93,13 @@ fn step_nes_system(time: Res<Time>, mut timer: ResMut<FrameTimer>,
 
         pixels.pixels.get_frame().copy_from_slice(&pixel_data);
     }
+}
+
+fn keyboard_input(components: Res<Resources>, keys: Res<Input<KeyCode>>) {
+    let joypad = &mut components.get_mut::<Joypad>().unwrap();
+    joypad.status = JoypadButtons::from_bits_truncate(
+        KEYMAP.iter().fold(0, |acc, e| {let t = acc >> 1; t | if keys.pressed(*e) {0b1000_0000} else {0}})
+    );
 }
 
 static PALETTE: [(u8, u8, u8); 64] = [
